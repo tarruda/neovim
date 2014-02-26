@@ -672,11 +672,6 @@ EXTERN int (*iconvctl)(iconv_t cd, int request, void *argument);
 EXTERN int* (*iconv_errno)(void);
 # endif
 
-
-
-EXTERN int composing_hangul INIT(= 0);
-EXTERN char_u composing_hangul_buffer[5];
-
 /*
  * "State" is the main state of Vim.
  * There are other variables that modify the state:
@@ -1191,6 +1186,13 @@ EXTERN FILE *time_fd INIT(= NULL);  /* where to write startup timing */
  */
 EXTERN int ignored;
 EXTERN char *ignoredp;
+
+/* Temporarily moved these static variables to assist in migrating from
+ * os_unix.c */
+/* volatile because it is used in signal handler deathtrap(). */
+EXTERN volatile int in_mch_delay INIT(= FALSE);   /* sleeping in mch_delay() */
+EXTERN int curr_tmode INIT(= TMODE_COOK); /* contains current terminal mode */
+EXTERN char_u   *extra_shell_arg INIT(= NULL);
 
 /*
  * Optional Farsi support.  Include it here, so EXTERN and INIT are defined.
