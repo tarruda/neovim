@@ -13,7 +13,12 @@
 #include "../screen.h"
 
 #define UNUSED(x) (void)(x)
-#define BUF_SIZE 4096 /* with BUF_SIZE == 1 test 49 seems to pass */
+/* 
+ * Setting higher buffer sizes cause test49 to fail, so leave at 1.
+ * This is not a problem as this is only a temporary solution until we start
+ * using msgpack streaming parser to buffer data.
+ */
+#define BUF_SIZE 1
 
 typedef struct {
   int options;
@@ -152,7 +157,7 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
       return 0;
     }
 
-    /* TODO refactor cursorhold events using a libuv timer */
+    /* TODO refactor cursorhold events out of here */
     if (trigger_cursorhold() && maxlen >= 3
         && !typebuf_changed(tb_change_cnt)) {
       buf[0] = K_SPECIAL;
@@ -312,6 +317,9 @@ static void alloc_buffer_cb(uv_handle_t *handle, size_t ssize, uv_buf_t *rv) {
   int wpos;
   UNUSED(handle);
   io_lock();
+  /*
+   * Write data at the current write position
+   */
   wpos = in_buffer.wpos;
   io_unlock();
   if (wpos == BUF_SIZE) {
