@@ -2,9 +2,6 @@
 #define NEOVIM_OS_UNIX_H
 /* os_unix.c */
 void mch_write __ARGS((char_u *s, int len));
-int mch_inchar __ARGS((char_u *buf, int maxlen, long wtime, int tb_change_cnt));
-int mch_char_avail __ARGS((void));
-void mch_delay __ARGS((long msec, int ignoreinput));
 int mch_stackcheck __ARGS((char *p));
 void mch_startjmp __ARGS((void));
 void mch_endjmp __ARGS((void));
@@ -43,7 +40,6 @@ int mch_can_exe __ARGS((char_u *name));
 int mch_nodetype __ARGS((char_u *name));
 void mch_early_init __ARGS((void));
 void mch_free_mem __ARGS((void));
-void mch_exit __ARGS((int r));
 void mch_settmode __ARGS((int tmode));
 void get_stty __ARGS((void));
 void mch_setmouse __ARGS((int on));

@@ -103,7 +103,6 @@ typedef int waitstatus;
 #endif
 static pid_t wait4pid __ARGS((pid_t, waitstatus *));
 
-static int WaitForChar __ARGS((long));
 static int RealWaitForChar __ARGS((int, long, int *));
 
 
@@ -136,14 +135,10 @@ static int save_patterns __ARGS((int num_pat, char_u **pat, int *num_file,
 
 /* volatile because it is used in signal handler sig_winch(). */
 static volatile int do_resize = FALSE;
-static char_u   *extra_shell_arg = NULL;
 static int show_shell_mess = TRUE;
 /* volatile because it is used in signal handler deathtrap(). */
 static volatile int deadly_signal = 0;      /* The signal we caught */
 /* volatile because it is used in signal handler deathtrap(). */
-static volatile int in_mch_delay = FALSE;    /* sleeping in mch_delay() */
-
-static int curr_tmode = TMODE_COOK;     /* contains current terminal mode */
 
 
 #ifdef SYS_SIGLIST_DECLARED
@@ -247,153 +242,9 @@ void mch_write(char_u *s, int len)
     RealWaitForChar(read_cmd_fd, p_wd, NULL);
 }
 
-/*
- * mch_inchar(): low level input function.
- * Get a characters from the keyboard.
- * Return the number of characters that are available.
- * If wtime == 0 do not wait for characters.
- * If wtime == n wait a short time for characters.
- * If wtime == -1 wait forever for characters.
- */
-int mch_inchar(
-        char_u      *buf,
-        int maxlen,
-        long wtime,                 /* don't use "time", MIPS cannot handle it */
-        int tb_change_cnt
-        )
-{
-    int len;
-
-
-    /* Check if window changed size while we were busy, perhaps the ":set
-     * columns=99" command was used. */
-    while (do_resize)
-        handle_resize();
-
-    if (wtime >= 0) {
-        while (WaitForChar(wtime) == 0) {           /* no character available */
-            if (!do_resize)           /* return if not interrupted by resize */
-                return 0;
-            handle_resize();
-        }
-    } else   {    /* wtime == -1 */
-        /*
-         * If there is no character available within 'updatetime' seconds
-         * flush all the swap files to disk.
-         * Also done when interrupted by SIGWINCH.
-         */
-        if (WaitForChar(p_ut) == 0) {
-            if (trigger_cursorhold() && maxlen >= 3
-                    && !typebuf_changed(tb_change_cnt)) {
-                buf[0] = K_SPECIAL;
-                buf[1] = KS_EXTRA;
-                buf[2] = (int)KE_CURSORHOLD;
-                return 3;
-            }
-            before_blocking();
-        }
-    }
-
-    for (;; ) {   /* repeat until we got a character */
-        while (do_resize)        /* window changed size */
-            handle_resize();
-
-        /*
-         * We want to be interrupted by the winch signal
-         * or by an event on the monitored file descriptors.
-         */
-        if (WaitForChar(-1L) == 0) {
-            if (do_resize)                /* interrupted by SIGWINCH signal */
-                handle_resize();
-            return 0;
-        }
-
-        /* If input was put directly in typeahead buffer bail out here. */
-        if (typebuf_changed(tb_change_cnt))
-            return 0;
-
-        /*
-         * For some terminals we only get one character at a time.
-         * We want the get all available characters, so we could keep on
-         * trying until none is available
-         * For some other terminals this is quite slow, that's why we don't do
-         * it.
-         */
-        len = read_from_input_buf(buf, (long)maxlen);
-        if (len > 0) {
-            return len;
-        }
-    }
-}
-
 static void handle_resize()                 {
   do_resize = FALSE;
   shell_resized();
-}
-
-/*
- * return non-zero if a character is available
- */
-int mch_char_avail()         {
-  return WaitForChar(0L);
-}
-
-void mch_delay(long msec, int ignoreinput)
-{
-  int old_tmode;
-
-  if (ignoreinput) {
-    /* Go to cooked mode without echo, to allow SIGINT interrupting us
-     * here.  But we don't want QUIT to kill us (CTRL-\ used in a
-     * shell may produce SIGQUIT). */
-    in_mch_delay = TRUE;
-    old_tmode = curr_tmode;
-    if (curr_tmode == TMODE_RAW)
-      settmode(TMODE_SLEEP);
-
-    /*
-     * Everybody sleeps in a different way...
-     * Prefer nanosleep(), some versions of usleep() can only sleep up to
-     * one second.
-     */
-#ifdef HAVE_NANOSLEEP
-    {
-      struct timespec ts;
-
-      ts.tv_sec = msec / 1000;
-      ts.tv_nsec = (msec % 1000) * 1000000;
-      (void)nanosleep(&ts, NULL);
-    }
-#else
-# ifdef HAVE_USLEEP
-    while (msec >= 1000) {
-      usleep((unsigned int)(999 * 1000));
-      msec -= 999;
-    }
-    usleep((unsigned int)(msec * 1000));
-# else
-#  ifndef HAVE_SELECT
-    poll(NULL, 0, (int)msec);
-#  else
-    {
-      struct timeval tv;
-
-      tv.tv_sec = msec / 1000;
-      tv.tv_usec = (msec % 1000) * 1000;
-      /*
-       * NOTE: Solaris 2.6 has a bug that makes select() hang here.  Get
-       * a patch from Sun to fix this.  Reported by Gunnar Pedersen.
-       */
-      select(0, NULL, NULL, NULL, &tv);
-    }
-#  endif /* HAVE_SELECT */
-# endif /* HAVE_NANOSLEEP */
-#endif /* HAVE_USLEEP */
-
-    settmode(old_tmode);
-    in_mch_delay = FALSE;
-  } else
-    WaitForChar(msec);
 }
 
 #if defined(HAVE_STACK_LIMIT) \
@@ -1564,80 +1415,6 @@ void mch_free_mem()          {
 }
 
 #endif
-
-static void exit_scroll __ARGS((void));
-
-/*
- * Output a newline when exiting.
- * Make sure the newline goes to the same stream as the text.
- */
-static void exit_scroll()                 {
-  if (silent_mode)
-    return;
-  if (newline_on_exit || msg_didout) {
-    if (msg_use_printf()) {
-      if (info_message)
-        mch_msg("\n");
-      else
-        mch_errmsg("\r\n");
-    } else
-      out_char('\n');
-  } else   {
-    restore_cterm_colors();             /* get original colors back */
-    msg_clr_eos_force();                /* clear the rest of the display */
-    windgoto((int)Rows - 1, 0);         /* may have moved the cursor */
-  }
-}
-
-void mch_exit(int r)
-{
-  exiting = TRUE;
-
-
-  {
-    settmode(TMODE_COOK);
-    mch_restore_title(3);       /* restore xterm title and icon name */
-    /*
-     * When t_ti is not empty but it doesn't cause swapping terminal
-     * pages, need to output a newline when msg_didout is set.  But when
-     * t_ti does swap pages it should not go to the shell page.  Do this
-     * before stoptermcap().
-     */
-    if (swapping_screen() && !newline_on_exit)
-      exit_scroll();
-
-    /* Stop termcap: May need to check for T_CRV response, which
-     * requires RAW mode. */
-    stoptermcap();
-
-    /*
-     * A newline is only required after a message in the alternate screen.
-     * This is set to TRUE by wait_return().
-     */
-    if (!swapping_screen() || newline_on_exit)
-      exit_scroll();
-
-    /* Cursor may have been switched off without calling starttermcap()
-     * when doing "vim -u vimrc" and vimrc contains ":q". */
-    if (full_screen)
-      cursor_on();
-  }
-  out_flush();
-  ml_close_all(TRUE);           /* remove all memfiles */
-  may_core_dump();
-
-#ifdef MACOS_CONVERT
-  mac_conv_cleanup();
-#endif
-
-
-
-#ifdef EXITFREE
-  free_all_mem();
-#endif
-
-  exit(r);
-}
 
 static void may_core_dump()                 {
   if (deadly_signal != 0) {
@@ -2824,33 +2601,6 @@ error:
 void mch_breakcheck()          {
   if (curr_tmode == TMODE_RAW && RealWaitForChar(read_cmd_fd, 0L, NULL))
     fill_input_buf(FALSE);
-}
-
-/*
- * Wait "msec" msec until a character is available from the keyboard or from
- * inbuf[]. msec == -1 will block forever.
- * When a GUI is being used, this will never get called -- webb
- */
-static int WaitForChar(msec)
-long msec;
-{
-  int avail;
-
-  if (input_available())            /* something in inbuf[] */
-    return 1;
-
-  /* May need to query the mouse position. */
-  if (WantQueryMouse) {
-    WantQueryMouse = FALSE;
-    mch_write((char_u *)IF_EB("\033[1'|", ESC_STR "[1'|"), 5);
-  }
-
-  /*
-   * For FEAT_MOUSE_GPM and FEAT_XCLIPBOARD we loop here to process mouse
-   * events.  This is a bit complicated, because they might both be defined.
-   */
-  avail = RealWaitForChar(read_cmd_fd, msec, NULL);
-  return avail;
 }
 
 /*

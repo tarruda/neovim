@@ -29,6 +29,7 @@
 #include "normal.h"
 #include "option.h"
 #include "os_unix.h"
+#include "os/os.h"
 #include "screen.h"
 #include "term.h"
 #include "window.h"

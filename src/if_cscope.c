@@ -20,6 +20,7 @@
 #include "os_unix.h"
 #include "quickfix.h"
 #include "tag.h"
+#include "os/os.h"
 #include "ui.h"
 #include "window.h"
 

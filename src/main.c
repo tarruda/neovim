@@ -34,6 +34,7 @@
 #include "ops.h"
 #include "option.h"
 #include "os_unix.h"
+#include "os/os.h"
 #include "quickfix.h"
 #include "screen.h"
 #include "syntax.h"
@@ -277,6 +278,7 @@ static char *(main_errors[]) =
    * Note that we may use mch_exit() before mch_init()!
    */
   mch_init();
+  io_init(); /* Eventually this will be done inside mch_init */
   TIME_MSG("shell init");
 
 
