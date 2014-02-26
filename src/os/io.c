@@ -13,7 +13,7 @@
 #include "../screen.h"
 
 #define UNUSED(x) (void)(x)
-#define BUF_SIZE 1 /* with BUF_SIZE == 1 test 49 seems to pass */
+#define BUF_SIZE 4096 /* with BUF_SIZE == 1 test 49 seems to pass */
 
 typedef struct {
   int options;
@@ -118,8 +118,6 @@ void mch_exit(int r) {
 /*
  * This is very ugly, but necessary at least until we start messing with
  * vget* functions
- * TODO:
- *  - Handle resize(SIGWINCH)
  */
 int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
   int rv;
@@ -132,9 +130,6 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
     read_error_exit();
     return 0;
   }
-
-  /* Check if window changed size while we were busy, perhaps the ":set
-   * columns=99" command was used. */
 
   if (!reading) {
     uv_async_send(&read_wake_async);
@@ -157,6 +152,7 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
       return 0;
     }
 
+    /* TODO refactor cursorhold events using a libuv timer */
     if (trigger_cursorhold() && maxlen >= 3
         && !typebuf_changed(tb_change_cnt)) {
       buf[0] = K_SPECIAL;
@@ -167,7 +163,6 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
     }
     before_blocking();
 
-    /* FIXME Interrupt on SIGNAL */
     io_wait();
 
     if (eof) {
@@ -177,6 +172,7 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
     }
   }
 
+  /* TODO Get rid of the typeahead buffer */
   if (typebuf_changed(tb_change_cnt)) {
     io_unlock();
     return 0;
