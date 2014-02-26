@@ -1180,11 +1180,6 @@ int vim_memcmp(void *, void *, size_t);
 # endif
 #endif
 
-#if defined(UNIX) || defined(FEAT_GUI) || defined(OS2) || defined(VMS) \
-  || defined(FEAT_CLIENTSERVER)
-# define USE_INPUT_BUF
-#endif
-
 #ifndef EINTR
 # define read_eintr(fd, buf, count) vim_read((fd), (buf), (count))
 # define write_eintr(fd, buf, count) vim_write((fd), (buf), (count))

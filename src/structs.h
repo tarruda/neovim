@@ -720,9 +720,6 @@ typedef struct {
   int old_char;
   int old_mod_mask;
   struct buffheader save_stuffbuff;
-#ifdef USE_INPUT_BUF
-  char_u              *save_inputbuf;
-#endif
 } tasave_T;
 
 /*
