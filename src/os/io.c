@@ -13,7 +13,7 @@
 #include "../screen.h"
 
 #define UNUSED(x) (void)(x)
-#define BUF_SIZE 4096 /* with BUF_SIZE == 1 test 49 seems to pass */
+#define BUF_SIZE 1 /* with BUF_SIZE == 1 test 49 seems to pass */
 
 typedef struct {
   int options;
@@ -200,6 +200,8 @@ int mch_char_avail() {
 void mch_delay(long msec, int ignoreinput) {
   int old_tmode;
 
+  io_lock();
+
   if (ignoreinput) {
     /* Go to cooked mode without echo, to allow SIGINT interrupting us
      * here.  But we don't want QUIT to kill us (CTRL-\ used in a
@@ -210,10 +212,14 @@ void mch_delay(long msec, int ignoreinput) {
     if (curr_tmode == TMODE_RAW)
       settmode(TMODE_SLEEP);
 
+    io_timedwait(msec);
+
     settmode(old_tmode);
     in_mch_delay = FALSE;
   } else
     io_timedwait(msec);
+
+  io_unlock();
 }
 
 static void io_start(void *arg) {
