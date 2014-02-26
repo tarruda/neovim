@@ -1174,9 +1174,6 @@ void save_typeahead(tasave_T *tp)
 
   tp->save_stuffbuff = stuffbuff;
   stuffbuff.bh_first.b_next = NULL;
-# ifdef USE_INPUT_BUF
-  tp->save_inputbuf = get_input_buf();
-# endif
 }
 
 /*
@@ -1195,9 +1192,6 @@ void restore_typeahead(tasave_T *tp)
 
   free_buff(&stuffbuff);
   stuffbuff = tp->save_stuffbuff;
-# ifdef USE_INPUT_BUF
-  set_input_buf(tp->save_inputbuf);
-# endif
 }
 
 /*
@@ -2499,21 +2493,6 @@ fix_input_buffer (
   *p = NUL;             /* add trailing NUL */
   return len;
 }
-
-#if defined(USE_INPUT_BUF) || defined(PROTO)
-/*
- * Return TRUE when bytes are in the input buffer or in the typeahead buffer.
- * Normally the input buffer would be sufficient, but the server_to_input_buf()
- * or feedkeys() may insert characters in the typeahead buffer while we are
- * waiting for input to arrive.
- */
-int input_available(void)         {
-  return !vim_is_input_buf_empty()
-         || typebuf_was_filled
-  ;
-}
-
-#endif
 
 /*
  * map[!]		    : show all key mappings
