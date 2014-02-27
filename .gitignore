@@ -25,5 +25,19 @@ src/testdir/*.failed
 src/testdir/X*
 src/testdir/valgrind.*
 
+# luajit compilation files
+third-party/luajit/src/host/buildvm
+third-party/luajit/src/host/buildvm_arch.h
+third-party/luajit/src/host/minilua
+third-party/luajit/src/jit/vmdef.lua
+third-party/luajit/src/libluajit.a
+third-party/luajit/src/lj_bcdef.h
+third-party/luajit/src/lj_ffdef.h
+third-party/luajit/src/lj_folddef.h
+third-party/luajit/src/lj_libdef.h
+third-party/luajit/src/lj_recdef.h
+third-party/luajit/src/lj_vm.s
+third-party/luajit/src/luajit
+
 # local make targets
 local.mk
