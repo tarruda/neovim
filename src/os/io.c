@@ -112,7 +112,7 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
   UNUSED(tb_change_cnt);
   io_lock();
 
-  if (!reading) {
+  if (!reading && !eof) {
     uv_async_send(&read_wake_async);
     reading = true;
   }
@@ -153,10 +153,11 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
       before_blocking();
       io_wait();
     }
-
   }
 
-  /* TODO Get rid of the typeahead buffer */
+  /* This was adapted from the original mch_inchar code.  Not sure why it's
+   * here, but I guess it has something to do with netbeans which was removed.
+   * Leave it alone for now */
   if (typebuf_changed(tb_change_cnt)) {
     io_unlock();
     return 0;
@@ -267,16 +268,15 @@ static void stop_loop(uv_async_t *handle, int status) {
   uv_stop(uv_default_loop());
 }
 
-/* Called by libuv to allocate memory for reading. This uses a static buffer */
+/* Called by libuv to allocate memory for reading. This uses a fixed buffer
+ * through the entire stream lifetime */
 static void alloc_buffer_cb(uv_handle_t *handle, size_t ssize, uv_buf_t *rv) {
   UNUSED(handle);
-  io_lock();
 
   /*
    * Check if the current alloc position is at the end of buffer
    */
   if (in_buffer.apos == BUF_SIZE) {
-    io_unlock();
     /* No more space in buffer */
     rv->len = 0;
     return;
@@ -293,7 +293,6 @@ static void alloc_buffer_cb(uv_handle_t *handle, size_t ssize, uv_buf_t *rv) {
   rv->base = (char *)(in_buffer.data + in_buffer.apos);
   rv->len = ssize;
   in_buffer.apos += ssize;
-  io_unlock();
 }
 
 /*
@@ -312,54 +311,39 @@ static void read_cb(uv_stream_t *s, ssize_t cnt, const uv_buf_t *buf) {
   UNUSED(s);
   UNUSED(buf); /* Data is already on the static buffer */
 
+  io_lock();
+
   if (cnt < 0) {
     if (cnt == UV_EOF) {
       /* EOF, stop the event loop and signal the main thread. This will cause
        * vim to exit */
-      io_lock();
       eof = true;
+      reading = false;
       uv_stop(uv_default_loop());
       io_signal();
-      io_unlock();
-      return;
     } else if (cnt == UV_ENOBUFS) {
+
       /* Out of space in internal buffer, move data to the 'left' as much
-       * as possible. If we cant move anything, stop reading for now. */
-      io_lock();
+       * as possible. If we cant move anything(rpos == 0), stop reading for now. */
       if (in_buffer.rpos == 0) {
         reading = false;
-        io_unlock();
         uv_read_stop((uv_stream_t *)&stdin_pipe);
-        return;
+      } else {
+        move_count = in_buffer.apos - in_buffer.rpos;
+        memmove(in_buffer.data, in_buffer.data + in_buffer.rpos, move_count);
+        in_buffer.wpos -= in_buffer.rpos;
+        in_buffer.apos -= in_buffer.rpos;
+        in_buffer.rpos = 0;
       }
-      /*
-       * rpos: (
-       * wpos: [
-       * apos: {
-       *
-       * before:
-       *
-       * ----------------------------------
-       *    (     [      {
-       *
-       * after:
-       * ----------------------------------
-       * (     [      {
-       */
-      move_count = in_buffer.apos - in_buffer.rpos;
-      memmove(in_buffer.data, in_buffer.data + in_buffer.rpos, move_count);
-      in_buffer.wpos -= in_buffer.rpos;
-      in_buffer.apos -= in_buffer.rpos;
-      in_buffer.rpos = 0;
-      io_unlock();
+
     } else {
       fprintf(stderr, "Unexpected error %s\n", uv_strerror(cnt));
     }
-    return;
+  } else {
+    /* Data was already written, so all we need is to update 'wpos' to reflect that */
+    in_buffer.wpos += cnt;
   }
-  io_lock();
-  /* Data was already written, so all we need is to update 'wpos' to reflect that */
-  in_buffer.wpos += cnt;
+
   io_signal();
   io_unlock();
 }
