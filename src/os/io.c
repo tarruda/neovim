@@ -13,17 +13,7 @@
 #include "../screen.h"
 
 #define UNUSED(x) (void)(x)
-/* 
- * Setting higher buffer sizes cause test49 to fail, so leave at 1.
- * This is not a problem as this is only a temporary solution until we start
- * using msgpack streaming parser to buffer data.
- */
 #define BUF_SIZE 1
-
-typedef struct {
-  int options;
-  char_u *cmd;
-} shell_cmd_data_t;
 
 typedef struct {
   unsigned int wpos, rpos;
@@ -33,22 +23,15 @@ typedef struct {
 static uv_thread_t io_thread;
 static uv_mutex_t io_mutex;
 static uv_cond_t io_cond;
-static uv_async_t read_wake_async, shell_start_async, stop_loop_async;
+static uv_async_t read_wake_async, stop_loop_async;
 static uv_pipe_t stdin_pipe;
-static uv_process_t         shell;
-static uv_process_options_t shell_opts;
-static int shell_exit_status;
-static uv_sem_t shell_sem;
-static uv_stdio_container_t shell_stdio_container[3];
 static input_buffer_T in_buffer;
 static bool reading = false, eof = false;
 
 static void io_start(void *);
 static void loop_running(uv_idle_t *, int);
 static void read_wake(uv_async_t *, int);
-static void shell_start(uv_async_t *, int);
 static void stop_loop(uv_async_t *, int);
-static void shell_exit(uv_process_t *, int64_t, int);
 static void alloc_buffer_cb(uv_handle_t *, size_t, uv_buf_t *);
 static void read_cb(uv_stream_t *, ssize_t, const uv_buf_t *);
 static void exit_scroll(void);
@@ -64,7 +47,6 @@ void io_init() {
   /* uv_disable_stdio_inheritance(); */
   uv_mutex_init(&io_mutex);
   uv_cond_init(&io_cond);
-  uv_sem_init(&shell_sem, 0);
   io_lock();
   /* The event loop runs in a background thread */
   uv_thread_create(&io_thread, io_start, NULL);
@@ -236,7 +218,6 @@ static void io_start(void *arg) {
   uv_idle_start(&idler, loop_running);
   /* Async watcher used by the main thread to resume reading */
   uv_async_init(loop, &read_wake_async, read_wake);
-  uv_async_init(loop, &shell_start_async, shell_start);
   uv_async_init(loop, &stop_loop_async, stop_loop);
   /* stdin */
   uv_pipe_init(loop, &stdin_pipe, 0);
@@ -259,51 +240,6 @@ static void read_wake(uv_async_t *handle, int status) {
   UNUSED(handle);
   UNUSED(status);
   uv_read_start((uv_stream_t *)&stdin_pipe, alloc_buffer_cb, read_cb);
-}
-
-
-/* Signal the loop to start the shell */
-static void shell_start(uv_async_t *handle, int status) {
-  int i = 0;
-  uv_loop_t *loop = uv_default_loop();
-  char *args[5];
-  shell_cmd_data_t *data = (shell_cmd_data_t *)handle->data;
-  UNUSED(handle);
-  UNUSED(status);
-  shell_stdio_container[0].flags = UV_IGNORE;
-  shell_stdio_container[0].data.fd = 0;
-  shell_stdio_container[1].flags = UV_INHERIT_FD;
-  shell_stdio_container[1].data.fd = 1;
-  shell_stdio_container[2].flags = UV_INHERIT_FD;
-  shell_stdio_container[2].data.fd = 2;
-
-  args[i++] = (char *)p_sh;
-  if (data->cmd != NULL) {
-    if (extra_shell_arg != NULL)
-      args[i++] = (char *)extra_shell_arg;
-    args[i++] = (char *)p_shcf;
-    args[i++] = (char *)data->cmd;
-  }
-  args[i++] = NULL;
-
-  shell_opts.exit_cb = shell_exit;
-  shell_opts.file = args[0];
-  shell_opts.args = args;
-  shell_opts.stdio_count = 3;
-  shell_opts.stdio = shell_stdio_container;
-
-  if ((shell_exit_status = uv_spawn(loop, &shell, &shell_opts)))
-    uv_sem_post(&shell_sem);
-}
-
-static void shell_exit(uv_process_t *handle, int64_t exit_status,
-    int term_signal)
-{
-  UNUSED(handle);
-  UNUSED(term_signal);
-  if (term_signal) shell_exit_status = -1;
-  else shell_exit_status = exit_status;
-  uv_sem_post(&shell_sem);
 }
 
 static void stop_loop(uv_async_t *handle, int status) {
