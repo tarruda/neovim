@@ -13,7 +13,7 @@
 #include "../screen.h"
 
 #define UNUSED(x) (void)(x)
-#define BUF_SIZE 1
+#define BUF_SIZE 64
 
 typedef struct {
   unsigned int wpos, rpos;
@@ -204,6 +204,16 @@ void mch_delay(long msec, int ignoreinput) {
 
   io_unlock();
 }
+
+/*
+ * Check for CTRL-C typed by reading all available characters.
+ * In cooked mode we should get SIGINT, no need to check.
+ */
+void mch_breakcheck() {
+  if (curr_tmode == TMODE_RAW && mch_char_avail())
+    fill_input_buf(FALSE);
+}
+
 
 static void io_start(void *arg) {
   uv_idle_t idler;

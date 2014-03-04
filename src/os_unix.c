@@ -2480,15 +2480,6 @@ error:
 }
 
 /*
- * Check for CTRL-C typed by reading all available characters.
- * In cooked mode we should get SIGINT, no need to check.
- */
-void mch_breakcheck()          {
-  if (curr_tmode == TMODE_RAW && RealWaitForChar(read_cmd_fd, 0L, NULL))
-    fill_input_buf(FALSE);
-}
-
-/*
  * Wait "msec" msec until a character is available from file descriptor "fd".
  * "msec" == 0 will check for characters once.
  * "msec" == -1 will block until a character is available.
