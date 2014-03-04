@@ -13,10 +13,10 @@
 #include "../screen.h"
 
 #define UNUSED(x) (void)(x)
-#define BUF_SIZE 1
+#define BUF_SIZE 4096
 
 typedef struct {
-  unsigned int wpos, rpos;
+  unsigned int apos, wpos, rpos;
   char_u data[BUF_SIZE];
 } input_buffer_T;
 
@@ -112,51 +112,48 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
   UNUSED(tb_change_cnt);
   io_lock();
 
-  if (eof) {
-    io_unlock();
-    read_error_exit();
-    return 0;
-  }
-
   if (!reading) {
     uv_async_send(&read_wake_async);
     reading = true;
   }
 
-  if (in_buffer.rpos == in_buffer.wpos) {
+  if (in_buffer.wpos == in_buffer.rpos) {
+    /* Need to wait for more data */
 
-    if (wtime >= 0 || eof) {
+    if (wtime >= 0) {
+      /* Wait up to 'wtime' milliseconds */
       io_timedwait(wtime);
-      io_unlock();
-      return 0;
+
+      if (in_buffer.wpos == in_buffer.rpos) {
+        /* Didn't read anything */
+        io_unlock();
+        if (eof) {
+          /* Make vim exit */
+          read_error_exit();
+        }
+        return 0;
+      }
+
+    } else {
+      if (trigger_cursorhold() && maxlen >= 3) {
+        /* When doing a blocking wait, first block for 'updatetime' if a
+         * cursorhold event can be triggered */
+        io_timedwait(p_ut);
+
+        if (in_buffer.wpos == in_buffer.rpos) {
+          io_unlock();
+          /* If nothing was typed, trigger the event */
+          buf[0] = K_SPECIAL;
+          buf[1] = KS_EXTRA;
+          buf[2] = (int)KE_CURSORHOLD;
+          return 3;
+        }
+      }
+
+      before_blocking();
+      io_wait();
     }
 
-    io_timedwait(p_ut);
-
-    if (eof) {
-      io_unlock();
-      read_error_exit();
-      return 0;
-    }
-
-    /* TODO refactor cursorhold events out of here */
-    if (trigger_cursorhold() && maxlen >= 3
-        && !typebuf_changed(tb_change_cnt)) {
-      buf[0] = K_SPECIAL;
-      buf[1] = KS_EXTRA;
-      buf[2] = (int)KE_CURSORHOLD;
-      io_unlock();
-      return 3;
-    }
-    before_blocking();
-
-    io_wait();
-
-    if (eof) {
-      io_unlock();
-      read_error_exit();
-      return 0;
-    }
   }
 
   /* TODO Get rid of the typeahead buffer */
@@ -164,6 +161,13 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
     io_unlock();
     return 0;
   }
+
+  if (in_buffer.wpos == in_buffer.rpos && eof) {
+    io_unlock();
+    read_error_exit();
+    return 0;
+  }
+
   /* Copy at most 'maxlen' to the buffer argument */
   rv = 0;
 
@@ -178,7 +182,6 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
 int mch_char_avail() {
   return in_buffer.rpos < in_buffer.wpos;
 }
-
 
 void mch_delay(long msec, int ignoreinput) {
   int old_tmode;
@@ -210,8 +213,15 @@ void mch_delay(long msec, int ignoreinput) {
  * In cooked mode we should get SIGINT, no need to check.
  */
 void mch_breakcheck() {
-  if (curr_tmode == TMODE_RAW && mch_char_avail())
-    fill_input_buf(FALSE);
+  /*
+   * Apparently this has no effect on the tests, so leave it commented for now.
+   * Soon we'll handle SIGINTs and user input in the UI, so this won't matter
+   * anyway
+   */
+  /*
+   * if (curr_tmode == TMODE_RAW && mch_char_avail())
+   *   fill_input_buf(FALSE);
+   */
 }
 
 
@@ -244,7 +254,6 @@ static void loop_running(uv_idle_t *handle, int status) {
   io_unlock();
 }
 
-
 /* Signal the loop to continue reading stdin */
 static void read_wake(uv_async_t *handle, int status) {
   UNUSED(handle);
@@ -260,34 +269,53 @@ static void stop_loop(uv_async_t *handle, int status) {
 
 /* Called by libuv to allocate memory for reading. This uses a static buffer */
 static void alloc_buffer_cb(uv_handle_t *handle, size_t ssize, uv_buf_t *rv) {
-  int wpos;
   UNUSED(handle);
   io_lock();
+
   /*
-   * Write data at the current write position
+   * Check if the current alloc position is at the end of buffer
    */
-  wpos = in_buffer.wpos;
-  io_unlock();
-  if (wpos == BUF_SIZE) {
+  if (in_buffer.apos == BUF_SIZE) {
+    io_unlock();
     /* No more space in buffer */
     rv->len = 0;
     return;
   }
-  if (BUF_SIZE < (wpos + ssize))
-    ssize = BUF_SIZE - wpos;
-  rv->base = (char *)(in_buffer.data + wpos);
+
+  /* 
+   * If ssize would cause the alloc position to go beyond the end of buffer,
+   * truncate it.
+   */
+  if (BUF_SIZE < (in_buffer.apos + ssize)) {
+    ssize = BUF_SIZE - in_buffer.apos;
+  }
+
+  rv->base = (char *)(in_buffer.data + in_buffer.apos);
   rv->len = ssize;
+  in_buffer.apos += ssize;
+  io_unlock();
 }
 
-/* This is only used to check how many bytes were read or if an error
- * occurred. If the static buffer is full(wpos == BUF_SIZE) try to move
- * the data to free space, or stop reading. */
+/*
+ * The actual reading was already performed by libuv, this callback will do one
+ * of the following:
+ *    - If EOF was reached, set a flag and signal the main thread to continue
+ *    - If the alloc_buffer_cb didnt allocate anything, try to move data to the
+ *      beginning of the buffer. If this fails, temporarily pause the stream
+ *
+ * This will also update the buffer write position(wpos) to reflect what was
+ * actually written.
+ */
 static void read_cb(uv_stream_t *s, ssize_t cnt, const uv_buf_t *buf) {
   int move_count;
+
   UNUSED(s);
   UNUSED(buf); /* Data is already on the static buffer */
+
   if (cnt < 0) {
     if (cnt == UV_EOF) {
+      /* EOF, stop the event loop and signal the main thread. This will cause
+       * vim to exit */
       io_lock();
       eof = true;
       uv_stop(uv_default_loop());
@@ -298,24 +326,39 @@ static void read_cb(uv_stream_t *s, ssize_t cnt, const uv_buf_t *buf) {
       /* Out of space in internal buffer, move data to the 'left' as much
        * as possible. If we cant move anything, stop reading for now. */
       io_lock();
-      if (in_buffer.rpos == 0)
-      {
+      if (in_buffer.rpos == 0) {
         reading = false;
         io_unlock();
         uv_read_stop((uv_stream_t *)&stdin_pipe);
+        return;
       }
-      move_count = BUF_SIZE - in_buffer.rpos;
+      /*
+       * rpos: (
+       * wpos: [
+       * apos: {
+       *
+       * before:
+       *
+       * ----------------------------------
+       *    (     [      {
+       *
+       * after:
+       * ----------------------------------
+       * (     [      {
+       */
+      move_count = in_buffer.apos - in_buffer.rpos;
       memmove(in_buffer.data, in_buffer.data + in_buffer.rpos, move_count);
       in_buffer.wpos -= in_buffer.rpos;
+      in_buffer.apos -= in_buffer.rpos;
       in_buffer.rpos = 0;
       io_unlock();
-    }
-    else {
+    } else {
       fprintf(stderr, "Unexpected error %s\n", uv_strerror(cnt));
     }
     return;
   }
   io_lock();
+  /* Data was already written, so all we need is to update 'wpos' to reflect that */
   in_buffer.wpos += cnt;
   io_signal();
   io_unlock();
@@ -368,3 +411,4 @@ static void io_timedwait(long ms) {
 static void io_signal() {
   uv_cond_signal(&io_cond);
 }
+

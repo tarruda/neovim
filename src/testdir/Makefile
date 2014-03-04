@@ -35,8 +35,6 @@ ifdef TESTNUM
 SCRIPTS := test$(TESTNUM).out
 endif
 
-SCRIPTS = test49.out
-
 .SUFFIXES: .in .out
 
 nongui:	nolog $(SCRIPTS) report
