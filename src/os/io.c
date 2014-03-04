@@ -13,7 +13,7 @@
 #include "../screen.h"
 
 #define UNUSED(x) (void)(x)
-#define BUF_SIZE 64
+#define BUF_SIZE 1
 
 typedef struct {
   unsigned int wpos, rpos;
