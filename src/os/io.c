@@ -62,7 +62,6 @@ void mch_exit(int r) {
   /* wait for the event loop thread */
   uv_thread_join(&io_thread);
 
-
   {
     settmode(TMODE_COOK);
     mch_restore_title(3);       /* restore xterm title and icon name */
@@ -93,7 +92,6 @@ void mch_exit(int r) {
   }
   out_flush();
   ml_close_all(TRUE);           /* remove all memfiles */
-  // may_core_dump();
 
 #ifdef EXITFREE
   free_all_mem();
@@ -148,6 +146,13 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
           buf[2] = (int)KE_CURSORHOLD;
           return 3;
         }
+      }
+
+      /* Before blocking check for EOF first or we may end up in a deadlock */
+      if (eof) {
+        io_unlock();
+        read_error_exit();
+        return 0;
       }
 
       before_blocking();
@@ -260,6 +265,8 @@ static void read_wake(uv_async_t *handle, int status) {
   UNUSED(handle);
   UNUSED(status);
   uv_read_start((uv_stream_t *)&stdin_pipe, alloc_buffer_cb, read_cb);
+  /* Temporary ref is no longer necessary */
+  uv_unref((uv_handle_t *)&stdin_pipe);
 }
 
 static void stop_loop(uv_async_t *handle, int status) {
@@ -319,14 +326,18 @@ static void read_cb(uv_stream_t *s, ssize_t cnt, const uv_buf_t *buf) {
        * vim to exit */
       eof = true;
       reading = false;
-      uv_stop(uv_default_loop());
       io_signal();
+      uv_stop(uv_default_loop());
     } else if (cnt == UV_ENOBUFS) {
-
-      /* Out of space in internal buffer, move data to the 'left' as much
-       * as possible. If we cant move anything(rpos == 0), stop reading for now. */
+      /* 
+       * Out of space in internal buffer, move data to the 'left' as much as
+       * possible. If we cant move anything(rpos == 0), pause reading for now.
+       */
       if (in_buffer.rpos == 0) {
         reading = false;
+        /* Keep a reference so the loop wont exit */
+        uv_ref((uv_handle_t *)&stdin_pipe);
+        /* Stop the stream */
         uv_read_stop((uv_stream_t *)&stdin_pipe);
       } else {
         move_count = in_buffer.apos - in_buffer.rpos;
@@ -342,9 +353,9 @@ static void read_cb(uv_stream_t *s, ssize_t cnt, const uv_buf_t *buf) {
   } else {
     /* Data was already written, so all we need is to update 'wpos' to reflect that */
     in_buffer.wpos += cnt;
+    io_signal();
   }
 
-  io_signal();
   io_unlock();
 }
 
