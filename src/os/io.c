@@ -265,8 +265,6 @@ static void read_wake(uv_async_t *handle, int status) {
   UNUSED(handle);
   UNUSED(status);
   uv_read_start((uv_stream_t *)&stdin_pipe, alloc_buffer_cb, read_cb);
-  /* Temporary ref is no longer necessary */
-  uv_unref((uv_handle_t *)&stdin_pipe);
 }
 
 static void stop_loop(uv_async_t *handle, int status) {
@@ -335,8 +333,6 @@ static void read_cb(uv_stream_t *s, ssize_t cnt, const uv_buf_t *buf) {
        */
       if (in_buffer.rpos == 0) {
         reading = false;
-        /* Keep a reference so the loop wont exit */
-        uv_ref((uv_handle_t *)&stdin_pipe);
         /* Stop the stream */
         uv_read_stop((uv_stream_t *)&stdin_pipe);
       } else {
