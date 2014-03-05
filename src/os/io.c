@@ -34,9 +34,9 @@ static uv_thread_t io_thread;
 static uv_mutex_t io_mutex;
 static uv_cond_t io_cond;
 static uv_async_t read_wake_async, stop_loop_async;
-static uv_pipe_t stdin_pipe;
+static uv_stream_t *stdin_stream;
 static input_buffer_T in_buffer;
-static bool reading = false, eof = false;
+static bool reading = false, eof = false, is_tty = true;
 
 static void io_start(void *);
 static void loop_running(uv_idle_t *, int);
@@ -258,8 +258,16 @@ static void io_start(void *arg) {
   uv_async_init(loop, &read_wake_async, read_wake);
   uv_async_init(loop, &stop_loop_async, stop_loop);
   /* stdin */
-  uv_pipe_init(loop, &stdin_pipe, 0);
-  uv_pipe_open(&stdin_pipe, read_cmd_fd);
+  if (is_tty) {
+    /* This code is temporary, in the future stdin will always be a pipe */
+    stdin_stream = (uv_stream_t *)malloc(sizeof(uv_tty_t));
+    uv_tty_init(loop, (uv_tty_t *)stdin_stream, read_cmd_fd, 1);
+  } else {
+    fcntl(read_cmd_fd, F_SETFL, fcntl(read_cmd_fd, F_GETFL, 0) | O_NONBLOCK);
+    stdin_stream = (uv_stream_t *)malloc(sizeof(uv_pipe_t));
+    uv_pipe_init(loop, (uv_pipe_t *)stdin_stream, 0);
+    uv_pipe_open((uv_pipe_t *)stdin_stream, read_cmd_fd);
+  }
   /* start processing events */
   uv_run(loop, UV_RUN_DEFAULT);
   /* free the event loop */
@@ -278,7 +286,7 @@ static void loop_running(uv_idle_t *handle, int status) {
 static void read_wake(uv_async_t *handle, int status) {
   UNUSED(handle);
   UNUSED(status);
-  uv_read_start((uv_stream_t *)&stdin_pipe, alloc_buffer_cb, read_cb);
+  uv_read_start(stdin_stream, alloc_buffer_cb, read_cb);
 }
 
 static void stop_loop(uv_async_t *handle, int status) {
@@ -340,7 +348,7 @@ static void read_cb(uv_stream_t *s, ssize_t cnt, const uv_buf_t *buf) {
       if (in_buffer.rpos == 0) {
         reading = false;
         /* Stop the stream */
-        uv_read_stop((uv_stream_t *)&stdin_pipe);
+        uv_read_stop(stdin_stream);
       } else {
         move_count = in_buffer.apos - in_buffer.rpos;
         memmove(in_buffer.data, in_buffer.data + in_buffer.rpos, move_count);
