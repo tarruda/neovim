@@ -66,7 +66,6 @@ void io_init() {
 void mch_exit(int r) {
   exiting = TRUE;
   /* stop libuv loop */
-  fprintf(stderr, "calling async uv_stop\n");
   uv_async_send(&stop_loop_async);
   /* wait for the event loop thread */
   uv_thread_join(&io_thread);
@@ -116,7 +115,6 @@ void mch_exit(int r) {
 int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
   int rv;
 
-  UNUSED(tb_change_cnt);
   io_lock();
 
   /* If reading was paused due to full buffer we signal the event loop to resume
@@ -291,27 +289,52 @@ static void read_wake(uv_async_t *handle, int status) {
 
 static void stop_loop(uv_async_t *handle, int status) {
   UNUSED(status);
-  fprintf(stderr, "called async uv_stop\n");
   uv_stop(handle->loop);
 }
 
 /* Called by libuv to allocate memory for reading. This uses a fixed buffer
  * through the entire stream lifetime */
-static void alloc_buffer_cb(uv_handle_t *handle, size_t ssize, uv_buf_t *rv) {
+static void alloc_buffer_cb(uv_handle_t *handle, size_t ssize, uv_buf_t *rv)
+{
+  int move_count;
+  size_t available;
+
   UNUSED(handle);
+  ssize = 1;
+  available = BUF_SIZE - in_buffer.apos;
+
+  if (ssize > available) ssize = available;
 
   /*
    * Check if the current allocated position is at the end of buffer
    */
-  if (in_buffer.apos == BUF_SIZE) {
-    /* No more space in buffer */
-    rv->len = 0;
-    return;
+  if (!available) {
+    /* Not enough space in buffer */
+    io_lock();
+    if (in_buffer.rpos == 0) {
+      /* Pause the stream until the main thread consumes some data. The io
+       * mutex should only be unlocked when the stream is stopped in the
+       * read_cb */
+      rv->len = 0;
+      return;
+    }
+    /* 
+     * Out of space in internal buffer, move data to the 'left' as much as
+     * possible. If we cant move anything(rpos == 0), pause reading for now.
+     */
+    move_count = in_buffer.apos - in_buffer.rpos;
+    memmove(in_buffer.data, in_buffer.data + in_buffer.rpos, move_count);
+    in_buffer.wpos -= in_buffer.rpos;
+    in_buffer.apos -= in_buffer.rpos;
+    in_buffer.rpos = 0;
+
+    ssize = 1;
+    io_unlock();
   }
 
   rv->base = (char *)(in_buffer.data + in_buffer.apos);
-  rv->len = 1;
-  in_buffer.apos++;
+  rv->len = ssize;
+  in_buffer.apos += ssize;
 }
 
 /*
@@ -325,46 +348,40 @@ static void alloc_buffer_cb(uv_handle_t *handle, size_t ssize, uv_buf_t *rv) {
  * actually written.
  */
 static void read_cb(uv_stream_t *s, ssize_t cnt, const uv_buf_t *buf) {
-  int move_count;
-
   UNUSED(s);
   UNUSED(buf); /* Data is already on the buffer */
 
-  io_lock();
-
   if (cnt < 0) {
+
     if (cnt == UV_EOF) {
       /* EOF, stop the event loop and signal the main thread. This will cause
        * vim to exit */
       eof = true;
       reading = false;
+      io_lock();
       io_signal();
+      io_unlock();
       uv_stop(s->loop);
     } else if (cnt == UV_ENOBUFS) {
-      /* 
-       * Out of space in internal buffer, move data to the 'left' as much as
-       * possible. If we cant move anything(rpos == 0), pause reading for now.
-       */
-      if (in_buffer.rpos == 0) {
-        reading = false;
-        /* Stop the stream */
-        uv_read_stop(stdin_stream);
-      } else {
-        move_count = in_buffer.apos - in_buffer.rpos;
-        memmove(in_buffer.data, in_buffer.data + in_buffer.rpos, move_count);
-        in_buffer.wpos -= in_buffer.rpos;
-        in_buffer.apos -= in_buffer.rpos;
-        in_buffer.rpos = 0;
-      }
-
+      reading = false;
+      uv_read_stop(stdin_stream);
+      /* locked by the alloc_cb */
+      io_unlock();
     } else {
       fprintf(stderr, "Unexpected error %s\n", uv_strerror(cnt));
     }
-  } else {
-    /* Data was already written, so all we need is to update 'wpos' to reflect that */
-    in_buffer.wpos += cnt;
-    io_signal();
+    return;
   }
+
+  /* Data was already written, so all we need is to update 'wpos' to reflect
+   * that */
+  io_lock();
+
+  in_buffer.wpos += cnt;
+  /* It seems libuv is appending a 0 at the end of the buffer, investigate
+   * the proper way to deal with this */ 
+  if (cnt > 0) io_signal();
+  else in_buffer.apos--;
 
   io_unlock();
 }
