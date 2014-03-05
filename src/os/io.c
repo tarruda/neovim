@@ -66,6 +66,7 @@ void io_init() {
 void mch_exit(int r) {
   exiting = TRUE;
   /* stop libuv loop */
+  fprintf(stderr, "calling async uv_stop\n");
   uv_async_send(&stop_loop_async);
   /* wait for the event loop thread */
   uv_thread_join(&io_thread);
@@ -282,6 +283,7 @@ static void read_wake(uv_async_t *handle, int status) {
 
 static void stop_loop(uv_async_t *handle, int status) {
   UNUSED(status);
+  fprintf(stderr, "called async uv_stop\n");
   uv_stop(handle->loop);
 }
 
