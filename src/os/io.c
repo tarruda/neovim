@@ -34,7 +34,6 @@ static uv_thread_t io_thread;
 static uv_mutex_t io_mutex;
 static uv_cond_t io_cond;
 static uv_async_t read_wake_async, stop_loop_async;
-static uv_stream_t *stdin_stream;
 static input_buffer_T in_buffer;
 static bool reading = false, eof = false;
 
@@ -242,7 +241,8 @@ void mch_breakcheck() {
 
 static void io_start(void *arg) {
   uv_loop_t *loop;
-  uv_idle_t idler;
+  uv_idle_t idler; 
+  uv_stream_t *stdin_stream;
 
   memset(&in_buffer, 0, sizeof(in_buffer));
 
@@ -260,6 +260,7 @@ static void io_start(void *arg) {
   stdin_stream = (uv_stream_t *)malloc(sizeof(uv_pipe_t));
   uv_pipe_init(loop, (uv_pipe_t *)stdin_stream, 0);
   uv_pipe_open((uv_pipe_t *)stdin_stream, read_cmd_fd);
+  read_wake_async.data = stdin_stream;
   /* start processing events */
   uv_run(loop, UV_RUN_DEFAULT);
   /* free the event loop */
@@ -278,7 +279,7 @@ static void loop_running(uv_idle_t *handle, int status) {
 static void read_wake(uv_async_t *handle, int status) {
   UNUSED(handle);
   UNUSED(status);
-  uv_read_start(stdin_stream, alloc_buffer_cb, read_cb);
+  uv_read_start((uv_stream_t *)handle->data, alloc_buffer_cb, read_cb);
 }
 
 static void stop_loop(uv_async_t *handle, int status) {
@@ -335,8 +336,7 @@ static void alloc_buffer_cb(uv_handle_t *handle, size_t ssize, uv_buf_t *rv)
  *    - If 'cnt' > 0, it will update the buffer write position(wpos) to reflect
  *      what was actually written.
  */
-static void read_cb(uv_stream_t *s, ssize_t cnt, const uv_buf_t *buf) {
-  UNUSED(s);
+static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf) {
   UNUSED(buf); /* Data is already on the buffer */
 
   if (cnt < 0) {
@@ -349,10 +349,10 @@ static void read_cb(uv_stream_t *s, ssize_t cnt, const uv_buf_t *buf) {
       io_lock();
       io_signal();
       io_unlock();
-      uv_stop(s->loop);
+      uv_stop(stream->loop);
     } else if (cnt == UV_ENOBUFS) {
       reading = false;
-      uv_read_stop(stdin_stream);
+      uv_read_stop(stream);
       /* locked by the alloc_cb */
       io_unlock();
     } else {
@@ -369,7 +369,7 @@ static void read_cb(uv_stream_t *s, ssize_t cnt, const uv_buf_t *buf) {
   if (cnt > 0) io_signal();
   /* After setting the read_cmd_fd to O_NONBLOCK, the bytes entered by the user
    * always have a trailing 0. Without the following 'else', typing
-   * interactively will display 'garbage'(Need to understand this) */ 
+   * interactively will display 'garbage'(Need to figure out why) */ 
   else in_buffer.apos--;
 
   io_unlock();
