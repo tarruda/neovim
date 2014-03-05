@@ -299,17 +299,9 @@ static void alloc_buffer_cb(uv_handle_t *handle, size_t ssize, uv_buf_t *rv) {
     return;
   }
 
-  /* 
-   * If ssize would cause the alloc position to go beyond the end of buffer,
-   * truncate it.
-   */
-  if (BUF_SIZE < (in_buffer.apos + ssize)) {
-    ssize = BUF_SIZE - in_buffer.apos;
-  }
-
   rv->base = (char *)(in_buffer.data + in_buffer.apos);
-  rv->len = ssize;
-  in_buffer.apos += ssize;
+  rv->len = 1;
+  in_buffer.apos++;
 }
 
 /*
