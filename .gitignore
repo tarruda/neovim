@@ -27,6 +27,7 @@
 /src/testdir/*.failed
 /src/testdir/X*
 /src/testdir/valgrind.*
+/src/testdir/valgrind
 
 # luarocks, not added as a subtree because of the large number of blobs
 /third-party/luarocks

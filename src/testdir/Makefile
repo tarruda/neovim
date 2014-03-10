@@ -4,6 +4,8 @@
 
 VIMPROG := ../../build/bin/nvim
 
+export SHELL := /bin/sh
+
 SCRIPTS := test1.out test2.out test3.out test4.out test5.out test6.out \
 		test7.out test8.out test9.out test10.out test11.out \
 		test12.out test13.out test14.out test15.out test17.out \
@@ -32,7 +34,9 @@ VGDB := --vgdb=yes --vgdb-error=0
 endif
 
 ifdef VALGRIND_CHECK
-VALGRIND = valgrind --suppressions=../../.valgrind.supp --leak-check=full --error-exitcode=123 --log-file=valgrind.$* $(VGDB)
+VALGRIND_NO_CHILDREN = valgrind -q --suppressions=../../.valgrind.supp --leak-check=full --error-exitcode=123 --log-file=valgrind-%p.log $(VGDB)
+VALGRIND_CHILDREN = $(VALGRIND_NO_CHILDREN) --trace-children=yes
+VALGRIND = $(if $(findstring $(*),test27.in),$(VALGRIND_NO_CHILDREN),$(VALGRIND_CHILDREN))
 endif
 
 ifdef TESTNUM
@@ -42,8 +46,6 @@ endif
 .SUFFIXES: .in .out
 
 nongui:	nolog $(SCRIPTS) report
-
-gui:	nolog $(SCRIPTS) $(SCRIPTS_GUI) report
 
 report:
 	@echo
@@ -55,7 +57,7 @@ report:
 
 $(SCRIPTS) $(SCRIPTS_GUI): $(VIMPROG)
 
-RM_ON_RUN = test.out X* viminfo
+RM_ON_RUN = test.out X* viminfo valgrind-*
 RM_ON_START = tiny.vim small.vim mbyte.vim mzscheme.vim lua.vim test.ok
 RUN_VIM = $(VALGRIND) $(VIMPROG) -u unix.vim -U NONE --noplugin -s dotest.in
 
@@ -63,8 +65,8 @@ clean:
 	-rm -rf *.out *.failed *.rej *.orig test.log $(RM_ON_RUN) $(RM_ON_START) valgrind.*
 
 test1.out: test1.in
-	-rm -rf $*.failed $(RM_ON_RUN) $(RM_ON_START) wrongtermsize
-	$(RUN_VIM) $*.in
+	@-rm -rf $*.failed $(RM_ON_RUN) $(RM_ON_START) wrongtermsize
+	@$(RUN_VIM) $*.in
 	@/bin/sh -c "if test -e wrongtermsize; \
 		then echo; \
 		echo test1 FAILED - terminal size must be 80x24 or larger; \
@@ -74,27 +76,27 @@ test1.out: test1.in
 		else echo; \
 		echo test1 FAILED - Something basic is wrong; \
 		echo; exit 1; fi"
-	-rm -rf X* viminfo
+	@-rm -rf X* viminfo
 
 .in.out:
-	-rm -rf $*.failed test.ok $(RM_ON_RUN)
-	cp $*.ok test.ok
-	# Sleep a moment to avoid that the xterm title is messed up.
-	# 200 msec is sufficient, but only modern sleep supports a fraction of
-	# a second, fall back to a second if it fails.
+	@-rm -rf $*.failed test.ok $(RM_ON_RUN)
+	@ cp $*.ok test.ok
+	@ # Sleep a moment to avoid that the xterm title is messed up.
+	@ # 200 msec is sufficient, but only modern sleep supports a fraction of
+	@ # a second, fall back to a second if it fails.
 	@-/bin/sh -c "sleep .2 > /dev/null 2>&1 || sleep 1"
-	$(RUN_VIM) $*.in
+	@$(RUN_VIM) $*.in > /dev/null 2>&1
 
-	# For flaky tests retry one time.
+	@ # For flaky tests retry one time.
 	@/bin/sh -c "if test -f test.out -a $* = test61; then \
 		  if diff test.out $*.ok; \
 		  then echo flaky test ok first time; \
 		  else rm -rf $*.failed $(RM_ON_RUN); \
-			$(RUN_VIM) $*.in; \
+			$(RUN_VIM) $*.in > /dev/null 2>&1; \
 		  fi \
 		fi"
 
-	# Check if the test.out file matches test.ok.
+	@ # Check if the test.out file matches test.ok.
 	@/bin/sh -c "if test -f test.out; then \
 		  if diff test.out $*.ok; \
 		  then mv -f test.out $*.out; \
@@ -102,10 +104,12 @@ test1.out: test1.in
 		  fi \
 		else echo $* NO OUTPUT >>test.log; \
 		fi"
-	@/bin/sh -c "if test -f valgrind; then\
-		  mv -f valgrind valgrind.$*; \
-		fi"
-	-rm -rf X* test.ok viminfo
+	@/bin/sh -c "if test -n \"$$(find -name 'valgrind-*' -a -size +000c)\"; then\
+		cat valgrind-*; echo $* fail due to valgrind error >&2;\
+		exit 1;\
+	fi"
+	@-rm -rf X* test.ok viminfo
+	@if test -f $*.failed; then echo $* fail; else echo $* pass; fi
 
 test49.out: test49.vim
 
