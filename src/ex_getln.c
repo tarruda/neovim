@@ -2079,6 +2079,7 @@ static void draw_cmdline(int start, int len)
       arshape_buf = alloc(buflen);
       if (arshape_buf == NULL)
         return;         /* out of memory */
+      memset(arshape_buf, NUL, buflen); /* initialize */
     }
 
     if (utf_iscomposing(utf_ptr2char(ccline.cmdbuff + start))) {
