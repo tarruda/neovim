@@ -6,6 +6,7 @@
 void io_init();
 void mch_exit(int);
 int mch_inchar(char_u *, int, long, int);
+ssize_t mch_inchar_read(char *buf, size_t count);
 int mch_char_avail(void);
 void mch_delay(long, int);
 void mch_breakcheck(void);
@@ -14,6 +15,7 @@ int mch_chdir(char *);
 int mch_dirname(char_u *buf, int len);
 int mch_get_absolute_path(char_u *fname, char_u *buf, int len, int force);
 int mch_is_absolute_path(const char_u *fname);
+
 int mch_isdir(const char_u *name);
 int mch_can_exe(const char_u *name);
 const char *mch_getenv(const char *name);

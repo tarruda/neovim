@@ -5,6 +5,7 @@
 #include "../term.h"
 #include "../os_unix.h"
 #include "../memline.h"
+#include "../misc2.h"
 #include "../ui.h"
 #include "../fileio.h"
 #include "../getchar.h"
@@ -13,7 +14,7 @@
 #include "../screen.h"
 
 #define UNUSED(x) (void)(x)
-#define BUF_SIZE 4096
+#define BUF_SIZE 1
 
 typedef struct {
   /* 
@@ -182,16 +183,26 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
     return 0;
   }
 
-  /* Copy at most 'maxlen' to the buffer argument */
-  rv = 0;
-
-  while (in_buffer.rpos < in_buffer.wpos && rv < maxlen)
-    buf[rv++] = in_buffer.data[in_buffer.rpos++];
+  rv = read_from_input_buf(buf, (long)maxlen);
 
   io_unlock();
 
   return rv;
 }
+
+
+/* FIXME This is a temporary function, used to satisfy the way vim currently
+ * reads characters. Soon it will be removed */
+ssize_t mch_inchar_read(char *buf, size_t count) {
+  size_t rv = 0;
+
+  /* Copy at most 'count' to the buffer argument */
+  while (in_buffer.rpos < in_buffer.wpos && rv < count)
+    buf[rv++] = in_buffer.data[in_buffer.rpos++];
+
+  return rv;
+}
+
 
 int mch_char_avail() {
   return in_buffer.rpos < in_buffer.wpos;
@@ -232,10 +243,10 @@ void mch_breakcheck() {
    * Soon we'll handle SIGINTs and user input in the UI, so this won't matter
    * anyway
    */
-  /*
-   * if (curr_tmode == TMODE_RAW && mch_char_avail())
-   *   fill_input_buf(FALSE);
-   */
+  
+  if (curr_tmode == TMODE_RAW && mch_char_avail())
+    fill_input_buf(FALSE);
+  
 }
 
 
