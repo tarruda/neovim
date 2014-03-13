@@ -291,6 +291,282 @@ void ui_breakcheck(void)          {
  * input buffer.
  */
 
+#if defined(USE_INPUT_BUF) || defined(PROTO)
+
+/*
+ * Internal typeahead buffer.  Includes extra space for long key code
+ * descriptions which would otherwise overflow.  The buffer is considered full
+ * when only this extra space (or part of it) remains.
+ */
+#if defined(FEAT_SUN_WORKSHOP) || defined(FEAT_NETBEANS_INTG) \
+  || defined(FEAT_CLIENTSERVER)
+/*
+ * Sun WorkShop and NetBeans stuff debugger commands into the input buffer.
+ * This requires a larger buffer...
+ * (Madsen) Go with this for remote input as well ...
+ */
+# define INBUFLEN 4096
+#else
+# define INBUFLEN 250
+#endif
+
+static char_u inbuf[INBUFLEN + MAX_KEY_CODE_LEN];
+static int inbufcount = 0;          /* number of chars in inbuf[] */
+
+/*
+ * vim_is_input_buf_full(), vim_is_input_buf_empty(), add_to_input_buf(), and
+ * trash_input_buf() are functions for manipulating the input buffer.  These
+ * are used by the gui_* calls when a GUI is used to handle keyboard input.
+ */
+
+int vim_is_input_buf_full(void)         {
+  return inbufcount >= INBUFLEN;
+}
+
+int vim_is_input_buf_empty(void)         {
+  return inbufcount == 0;
+}
+
+#if defined(FEAT_OLE) || defined(PROTO)
+int vim_free_in_input_buf(void)         {
+  return INBUFLEN - inbufcount;
+}
+
+#endif
+
+
+/*
+ * Return the current contents of the input buffer and make it empty.
+ * The returned pointer must be passed to set_input_buf() later.
+ */
+char_u *get_input_buf(void)              {
+  garray_T    *gap;
+
+  /* We use a growarray to store the data pointer and the length. */
+  gap = (garray_T *)alloc((unsigned)sizeof(garray_T));
+  if (gap != NULL) {
+    /* Add one to avoid a zero size. */
+    gap->ga_data = alloc((unsigned)inbufcount + 1);
+    if (gap->ga_data != NULL)
+      mch_memmove(gap->ga_data, inbuf, (size_t)inbufcount);
+    gap->ga_len = inbufcount;
+  }
+  trash_input_buf();
+  return (char_u *)gap;
+}
+
+/*
+ * Restore the input buffer with a pointer returned from get_input_buf().
+ * The allocated memory is freed, this only works once!
+ */
+void set_input_buf(char_u *p)
+{
+  garray_T    *gap = (garray_T *)p;
+
+  if (gap != NULL) {
+    if (gap->ga_data != NULL) {
+      mch_memmove(inbuf, gap->ga_data, gap->ga_len);
+      inbufcount = gap->ga_len;
+      vim_free(gap->ga_data);
+    }
+    vim_free(gap);
+  }
+}
+
+#if defined(FEAT_GUI) \
+  || defined(FEAT_MOUSE_GPM) || defined(FEAT_SYSMOUSE) \
+  || defined(FEAT_XCLIPBOARD) || defined(VMS) \
+  || defined(FEAT_SNIFF) || defined(FEAT_CLIENTSERVER) \
+  || defined(PROTO)
+/*
+ * Add the given bytes to the input buffer
+ * Special keys start with CSI.  A real CSI must have been translated to
+ * CSI KS_EXTRA KE_CSI.  K_SPECIAL doesn't require translation.
+ */
+void add_to_input_buf(char_u *s, int len)
+{
+  if (inbufcount + len > INBUFLEN + MAX_KEY_CODE_LEN)
+    return;         /* Shouldn't ever happen! */
+
+  if ((State & (INSERT|CMDLINE)) && hangul_input_state_get())
+    if ((len = hangul_input_process(s, len)) == 0)
+      return;
+
+  while (len--)
+    inbuf[inbufcount++] = *s++;
+}
+#endif
+
+#if ((defined(FEAT_XIM) || defined(FEAT_DND)) && defined(FEAT_GUI_GTK)) \
+  || defined(FEAT_GUI_MSWIN) \
+  || defined(FEAT_GUI_MAC) \
+  || (defined(FEAT_MBYTE) && defined(FEAT_MBYTE_IME)) \
+  || (defined(FEAT_GUI) && (!defined(USE_ON_FLY_SCROLL) \
+  || defined(FEAT_MENU))) \
+  || defined(PROTO)
+/*
+ * Add "str[len]" to the input buffer while escaping CSI bytes.
+ */
+void add_to_input_buf_csi(char_u *str, int len)          {
+  int i;
+  char_u buf[2];
+
+  for (i = 0; i < len; ++i) {
+    add_to_input_buf(str + i, 1);
+    if (str[i] == CSI) {
+      /* Turn CSI into K_CSI. */
+      buf[0] = KS_EXTRA;
+      buf[1] = (int)KE_CSI;
+      add_to_input_buf(buf, 2);
+    }
+  }
+}
+
+#endif
+
+void push_raw_key(char_u *s, int len)
+{
+  while (len--)
+    inbuf[inbufcount++] = *s++;
+}
+
+#if defined(FEAT_GUI) || defined(FEAT_EVAL) || defined(FEAT_EX_EXTRA) \
+  || defined(PROTO)
+/* Remove everything from the input buffer.  Called when ^C is found */
+void trash_input_buf(void)          {
+  inbufcount = 0;
+}
+
+#endif
+
+/*
+ * Read as much data from the input buffer as possible up to maxlen, and store
+ * it in buf.
+ * Note: this function used to be Read() in unix.c
+ */
+int read_from_input_buf(char_u *buf, long maxlen)
+{
+  if (inbufcount == 0)          /* if the buffer is empty, fill it */
+    fill_input_buf(TRUE);
+  if (maxlen > inbufcount)
+    maxlen = inbufcount;
+  mch_memmove(buf, inbuf, (size_t)maxlen);
+  inbufcount -= maxlen;
+  if (inbufcount)
+    mch_memmove(inbuf, inbuf + maxlen, (size_t)inbufcount);
+  return (int)maxlen;
+}
+
+void fill_input_buf(int exit_on_error)
+{
+#if defined(UNIX) || defined(OS2) || defined(VMS) || defined(MACOS_X_UNIX)
+  int len;
+  int try;
+  static int did_read_something = FALSE;
+  static char_u *rest = NULL;       /* unconverted rest of previous read */
+  static int restlen = 0;
+  int unconverted;
+#endif
+
+#if defined(UNIX) || defined(OS2) || defined(VMS) || defined(MACOS_X_UNIX)
+  if (vim_is_input_buf_full())
+    return;
+  /*
+   * Fill_input_buf() is only called when we really need a character.
+   * If we can't get any, but there is some in the buffer, just return.
+   * If we can't get any, and there isn't any in the buffer, we give up and
+   * exit Vim.
+   */
+
+
+  if (rest != NULL) {
+    /* Use remainder of previous call, starts with an invalid character
+     * that may become valid when reading more. */
+    if (restlen > INBUFLEN - inbufcount)
+      unconverted = INBUFLEN - inbufcount;
+    else
+      unconverted = restlen;
+    mch_memmove(inbuf + inbufcount, rest, unconverted);
+    if (unconverted == restlen) {
+      vim_free(rest);
+      rest = NULL;
+    } else   {
+      restlen -= unconverted;
+      mch_memmove(rest, rest + unconverted, restlen);
+    }
+    inbufcount += unconverted;
+  } else
+    unconverted = 0;
+
+  len = 0;      /* to avoid gcc warning */
+  for (try = 0; try < 100; ++try) {
+    len = mch_inchar_read((char *)inbuf + inbufcount, (size_t)((INBUFLEN -
+            inbufcount) / input_conv.vc_factor));
+
+    if (len > 0 || got_int)
+      break;
+    /*
+     * If reading stdin results in an error, continue reading stderr.
+     * This helps when using "foo | xargs vim".
+     */
+    if (!did_read_something && !isatty(read_cmd_fd) && read_cmd_fd == 0) {
+      int m = cur_tmode;
+
+      /* We probably set the wrong file descriptor to raw mode.  Switch
+       * back to cooked mode, use another descriptor and set the mode to
+       * what it was. */
+      settmode(TMODE_COOK);
+#ifdef HAVE_DUP
+      /* Use stderr for stdin, also works for shell commands. */
+      close(0);
+      ignored = dup(2);
+#else
+      read_cmd_fd = 2;          /* read from stderr instead of stdin */
+#endif
+      settmode(m);
+    }
+    if (!exit_on_error)
+      return;
+  }
+  if (len <= 0 && !got_int)
+    read_error_exit();
+  if (len > 0)
+    did_read_something = TRUE;
+  if (got_int) {
+    /* Interrupted, pretend a CTRL-C was typed. */
+    inbuf[0] = 3;
+    inbufcount = 1;
+  } else   {
+    /*
+     * May perform conversion on the input characters.
+     * Include the unconverted rest of the previous call.
+     * If there is an incomplete char at the end it is kept for the next
+     * time, reading more bytes should make conversion possible.
+     * Don't do this in the unlikely event that the input buffer is too
+     * small ("rest" still contains more bytes).
+     */
+    if (input_conv.vc_type != CONV_NONE) {
+      inbufcount -= unconverted;
+      len = convert_input_safe(inbuf + inbufcount,
+          len + unconverted, INBUFLEN - inbufcount,
+          rest == NULL ? &rest : NULL, &restlen);
+    }
+    while (len-- > 0) {
+      /*
+       * if a CTRL-C was typed, remove it from the buffer and set got_int
+       */
+      if (inbuf[inbufcount] == 3 && ctrl_c_interrupts) {
+        /* remove everything typed before the CTRL-C */
+        mch_memmove(inbuf, inbuf + inbufcount, (size_t)(len + 1));
+        inbufcount = 0;
+        got_int = TRUE;
+      }
+      ++inbufcount;
+    }
+  }
+#endif /* UNIX or OS2 or VMS*/
+}
+#endif /* defined(UNIX) || defined(FEAT_GUI) || defined(OS2)  || defined(VMS) */
 
 /*
  * Exit because of an input read error.
@@ -298,6 +574,7 @@ void ui_breakcheck(void)          {
 void read_error_exit(void)          {
   if (silent_mode)      /* Normal way to exit for "ex -s" */
     getout(0);
+
   STRCPY(IObuff, _("Vim: Error reading input, exiting...\n"));
   preserve_exit();
 }
