@@ -5,6 +5,7 @@
 
 void io_init();
 void mch_exit(int);
+int next_signal();
 int mch_inchar(char_u *, int, long, int);
 ssize_t mch_inchar_read(char *buf, size_t count);
 int mch_char_avail(void);

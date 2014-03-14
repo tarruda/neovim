@@ -2003,18 +2003,6 @@ static int cs_read_prompt(int i)
   return CSCOPE_SUCCESS;
 }
 
-#if defined(UNIX) && defined(SIGALRM)
-/*
- * Used to catch and ignore SIGALRM below.
- */
-static RETSIGTYPE
-sig_handler SIGDEFARG(sigarg) {
-  /* do nothing */
-  SIGRETURN;
-}
-
-#endif
-
 /*
  * PRIVATE: cs_release_csp
  *
@@ -2041,7 +2029,6 @@ static void cs_release_csp(int i, int freefnpp)
 
     /* Use sigaction() to limit the waiting time to two seconds. */
     sigemptyset(&sa.sa_mask);
-    sa.sa_handler = sig_handler;
 #  ifdef SA_NODEFER
     sa.sa_flags = SA_NODEFER;
 #  else

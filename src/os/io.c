@@ -1,3 +1,5 @@
+#include <stdbool.h>
+
 #include <uv.h>
 
 #include "./os.h"
@@ -31,6 +33,7 @@ typedef struct {
   char_u data[BUF_SIZE];
 } input_buffer_T;
 
+static int pending_signal = 0;
 static uv_thread_t io_thread;
 static uv_mutex_t io_mutex;
 static uv_cond_t io_cond;
@@ -44,12 +47,16 @@ static void read_wake(uv_async_t *, int);
 static void stop_loop(uv_async_t *, int);
 static void alloc_buffer_cb(uv_handle_t *, size_t, uv_buf_t *);
 static void read_cb(uv_stream_t *, ssize_t, const uv_buf_t *);
+static void signal_cb(uv_signal_t *, int signum);
 static void exit_scroll(void);
 static void io_lock();
 static void io_unlock();
 static void io_wait();
 static void io_timedwait(long ms);
 static void io_signal();
+static int special_key(char_u *, char_u);
+static int cursorhold_key(char_u *);
+static int signal_key(char_u *);
 
 void io_init() {
   /* uv_disable_stdio_inheritance(); */
@@ -108,6 +115,15 @@ void mch_exit(int r) {
   exit(r);
 }
 
+int next_signal() {
+  /* FIXME pending_signal must be a queue of signals */
+  int rv = pending_signal;
+
+  pending_signal = 0;
+
+  return rv;
+}
+
 /*
  * This is ugly, but necessary at least until we start messing with vget*
  * functions a long time from now
@@ -116,6 +132,9 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
   int rv;
 
   io_lock();
+
+  if (pending_signal)
+    return signal_key(buf);
 
   /* If reading was paused due to full buffer we signal the event loop to resume
    * reading */
@@ -130,6 +149,9 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
     if (wtime >= 0) {
       /* Wait up to 'wtime' milliseconds */
       io_timedwait(wtime);
+
+      if (pending_signal)
+        return signal_key(buf);
 
       if (in_buffer.wpos == in_buffer.rpos) {
         /* Didn't read anything */
@@ -147,13 +169,11 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
          * cursorhold event can be triggered */
         io_timedwait(p_ut);
 
+        if (pending_signal)
+          return signal_key(buf);
+
         if (in_buffer.wpos == in_buffer.rpos) {
-          io_unlock();
-          /* If nothing was typed, trigger the event */
-          buf[0] = K_SPECIAL;
-          buf[1] = KS_EXTRA;
-          buf[2] = (int)KE_CURSORHOLD;
-          return 3;
+          return cursorhold_key(buf);
         }
       }
 
@@ -253,6 +273,7 @@ void mch_breakcheck() {
 static void io_start(void *arg) {
   uv_loop_t *loop;
   uv_idle_t idler; 
+  uv_signal_t shup, squit, sabrt, sterm, swinch;
   uv_stream_t *stdin_stream;
 
   memset(&in_buffer, 0, sizeof(in_buffer));
@@ -272,6 +293,17 @@ static void io_start(void *arg) {
   uv_pipe_init(loop, (uv_pipe_t *)stdin_stream, 0);
   uv_pipe_open((uv_pipe_t *)stdin_stream, read_cmd_fd);
   read_wake_async.data = stdin_stream;
+  /* signals */
+  uv_signal_init(loop, &shup);
+  uv_signal_start(&shup, signal_cb, SIGHUP);
+  uv_signal_init(loop, &squit);
+  uv_signal_start(&squit, signal_cb, SIGQUIT);
+  uv_signal_init(loop, &sabrt);
+  uv_signal_start(&sabrt, signal_cb, SIGABRT);
+  uv_signal_init(loop, &sterm);
+  uv_signal_start(&sterm, signal_cb, SIGTERM);
+  uv_signal_init(loop, &swinch);
+  uv_signal_start(&sterm, signal_cb, SIGWINCH);
   /* start processing events */
   uv_run(loop, UV_RUN_DEFAULT);
   /* free the event loop */
@@ -386,6 +418,13 @@ static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf) {
   io_unlock();
 }
 
+static void signal_cb(uv_signal_t *handle, int signum) {
+  io_lock();
+  pending_signal = signum;
+  io_signal(); /* unblock */
+  io_unlock();
+}
+
 /*
  * Output a newline when exiting.
  * Make sure the newline goes to the same stream as the text.
@@ -434,3 +473,21 @@ static void io_signal() {
   uv_cond_signal(&io_cond);
 }
 
+/* Helpers for returning special keys from mch_inchar */
+
+static int special_key(char_u *buf, char_u k) {
+  io_unlock();
+  /* If nothing was typed, trigger the event */
+  buf[0] = K_SPECIAL;
+  buf[1] = KS_EXTRA;
+  buf[2] = k;
+  return 3;
+}
+
+static int cursorhold_key(char_u *buf) {
+  return special_key(buf, KE_CURSORHOLD);
+}
+
+static int signal_key(char_u *buf) {
+  return special_key(buf, KE_SIGNAL);
+}
