@@ -34,7 +34,7 @@ if [ "$CC" = "clang" ]; then
 	export SANITIZE=1
 	export ASAN_SYMBOLIZER_PATH=$symbolizer
 	export ASAN_OPTIONS="detect_leaks=1:log_path=$tmpdir/asan"
-	export TSAN_OPTIONS="external_symbolizer_path=$symbolizer:log_path=$tmpdir/tsan"
+	export TSAN_OPTIONS="suppressions=$(pwd)/.tsan-suppress:external_symbolizer_path=$symbolizer:log_path=$tmpdir/tsan"
 	export UBSAN_OPTIONS="log_path=$tmpdir/ubsan" # not sure if this works
 
 	make cmake CMAKE_EXTRA_FLAGS="-DCMAKE_INSTALL_PREFIX=$install_dir"

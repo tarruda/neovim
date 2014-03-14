@@ -1188,6 +1188,7 @@ EXTERN char *ignoredp;
 EXTERN volatile int in_mch_delay INIT(= FALSE);   /* sleeping in mch_delay() */
 EXTERN int curr_tmode INIT(= TMODE_COOK); /* contains current terminal mode */
 EXTERN char_u   *extra_shell_arg INIT(= NULL);
+EXTERN volatile int do_resize INIT(= FALSE);
 
 /*
  * Optional Farsi support.  Include it here, so EXTERN and INIT are defined.

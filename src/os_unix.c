@@ -65,28 +65,6 @@ static int selinux_enabled = -1;
 extern int select(int, fd_set *, fd_set *, fd_set *, struct timeval *);
 #endif
 
-
-
-/*
- * end of autoconf section. To be extended...
- */
-
-/* Are the following #ifdefs still required? And why? Is that for X11? */
-
-#if defined(ESIX) || defined(M_UNIX) && !defined(SCO)
-# ifdef SIGWINCH
-#  undef SIGWINCH
-# endif
-# ifdef TIOCGWINSZ
-#  undef TIOCGWINSZ
-# endif
-#endif
-
-#if defined(SIGWINDOW) && !defined(SIGWINCH)    /* hpux 9.01 has it */
-# define SIGWINCH SIGWINDOW
-#endif
-
-
 static int get_x11_title(int);
 static int get_x11_icon(int);
 
@@ -94,8 +72,6 @@ static char_u   *oldtitle = NULL;
 static int did_set_title = FALSE;
 static char_u   *oldicon = NULL;
 static int did_set_icon = FALSE;
-
-static void may_core_dump(void);
 
 #ifdef HAVE_UNION_WAIT
 typedef union wait waitstatus;
@@ -109,129 +85,14 @@ static int RealWaitForChar(int, long, int *);
 
 static void handle_resize(void);
 
-#if defined(SIGWINCH)
-static RETSIGTYPE sig_winch SIGPROTOARG;
-#endif
-#if defined(SIGINT)
-static RETSIGTYPE catch_sigint SIGPROTOARG;
-#endif
-#if defined(SIGPWR)
-static RETSIGTYPE catch_sigpwr SIGPROTOARG;
-#endif
-static RETSIGTYPE deathtrap SIGPROTOARG;
-
-static void catch_int_signal(void);
-static void set_signals(void);
-static void catch_signals
-    (RETSIGTYPE (*func_deadly)(), RETSIGTYPE (*func_other)());
 static int have_wildcard(int, char_u **);
 static int have_dollars(int, char_u **);
 
 static int save_patterns(int num_pat, char_u **pat, int *num_file,
                          char_u ***file);
 
-#ifndef SIG_ERR
-# define SIG_ERR        ((RETSIGTYPE (*)())-1)
-#endif
-
 /* volatile because it is used in signal handler sig_winch(). */
-static volatile int do_resize = FALSE;
 static int show_shell_mess = TRUE;
-/* volatile because it is used in signal handler deathtrap(). */
-static volatile int deadly_signal = 0;      /* The signal we caught */
-/* volatile because it is used in signal handler deathtrap(). */
-
-
-#ifdef SYS_SIGLIST_DECLARED
-/*
- * I have seen
- *  extern char *_sys_siglist[NSIG];
- * on Irix, Linux, NetBSD and Solaris. It contains a nice list of strings
- * that describe the signals. That is nearly what we want here.  But
- * autoconf does only check for sys_siglist (without the underscore), I
- * do not want to change everything today.... jw.
- * This is why AC_DECL_SYS_SIGLIST is commented out in configure.in
- */
-#endif
-
-static struct signalinfo {
-  int sig;              /* Signal number, eg. SIGSEGV etc */
-  char    *name;        /* Signal name (not char_u!). */
-  char deadly;          /* Catch as a deadly signal? */
-} signal_info[] =
-{
-#ifdef SIGHUP
-  {SIGHUP,        "HUP",      TRUE},
-#endif
-#ifdef SIGQUIT
-  {SIGQUIT,       "QUIT",     TRUE},
-#endif
-#ifdef SIGILL
-  {SIGILL,        "ILL",      TRUE},
-#endif
-#ifdef SIGTRAP
-  {SIGTRAP,       "TRAP",     TRUE},
-#endif
-#ifdef SIGABRT
-  {SIGABRT,       "ABRT",     TRUE},
-#endif
-#ifdef SIGEMT
-  {SIGEMT,        "EMT",      TRUE},
-#endif
-#ifdef SIGFPE
-  {SIGFPE,        "FPE",      TRUE},
-#endif
-#ifdef SIGBUS
-  {SIGBUS,        "BUS",      TRUE},
-#endif
-#if defined(SIGSEGV)
-  /* MzScheme uses SEGV in its garbage collector */
-  {SIGSEGV,       "SEGV",     TRUE},
-#endif
-#ifdef SIGSYS
-  {SIGSYS,        "SYS",      TRUE},
-#endif
-#ifdef SIGALRM
-  {SIGALRM,       "ALRM",     FALSE},   /* Perl's alarm() can trigger it */
-#endif
-#ifdef SIGTERM
-  {SIGTERM,       "TERM",     TRUE},
-#endif
-#if defined(SIGVTALRM)
-  {SIGVTALRM,     "VTALRM",   TRUE},
-#endif
-#if defined(SIGPROF) && !defined(WE_ARE_PROFILING)
-  /* MzScheme uses SIGPROF for its own needs; On Linux with profiling
-   * this makes Vim exit.  WE_ARE_PROFILING is defined in Makefile.  */
-  {SIGPROF,       "PROF",     TRUE},
-#endif
-#ifdef SIGXCPU
-  {SIGXCPU,       "XCPU",     TRUE},
-#endif
-#ifdef SIGXFSZ
-  {SIGXFSZ,       "XFSZ",     TRUE},
-#endif
-#ifdef SIGUSR1
-  {SIGUSR1,       "USR1",     TRUE},
-#endif
-#if defined(SIGUSR2) && !defined(FEAT_SYSMOUSE)
-  /* Used for sysmouse handling */
-  {SIGUSR2,       "USR2",     TRUE},
-#endif
-#ifdef SIGINT
-  {SIGINT,        "INT",      FALSE},
-#endif
-#ifdef SIGWINCH
-  {SIGWINCH,      "WINCH",    FALSE},
-#endif
-#ifdef SIGTSTP
-  {SIGTSTP,       "TSTP",     FALSE},
-#endif
-#ifdef SIGPIPE
-  {SIGPIPE,       "PIPE",     FALSE},
-#endif
-  {-1,            "Unknown!", FALSE}
-};
 
 /*
  * Write s[len] to the screen.
@@ -247,91 +108,6 @@ static void handle_resize()                 {
   do_resize = FALSE;
   shell_resized();
 }
-
-
-#if defined(HAVE_SIGALTSTACK) || defined(HAVE_SIGSTACK)
-/*
- * Support for using the signal stack.
- * This helps when we run out of stack space, which causes a SIGSEGV.  The
- * signal handler then must run on another stack, since the normal stack is
- * completely full.
- */
-
-
-#ifndef SIGSTKSZ
-# define SIGSTKSZ 8000    /* just a guess of how much stack is needed... */
-#endif
-
-# ifdef HAVE_SIGALTSTACK
-static stack_t sigstk;                  /* for sigaltstack() */
-# else
-static struct sigstack sigstk;          /* for sigstack() */
-# endif
-
-static void init_signal_stack(void);
-static char *signal_stack;
-
-static void init_signal_stack()                 {
-  if (signal_stack != NULL) {
-# ifdef HAVE_SIGALTSTACK
-    sigstk.ss_sp = signal_stack;
-    sigstk.ss_size = SIGSTKSZ;
-    sigstk.ss_flags = 0;
-    (void)sigaltstack(&sigstk, NULL);
-# else
-    sigstk.ss_sp = signal_stack;
-    if (stack_grows_downwards)
-      sigstk.ss_sp += SIGSTKSZ - 1;
-    sigstk.ss_onstack = 0;
-    (void)sigstack(&sigstk, NULL);
-# endif
-  }
-}
-
-#endif
-
-/*
- * We need correct prototypes for a signal function, otherwise mean compilers
- * will barf when the second argument to signal() is ``wrong''.
- * Let me try it with a few tricky defines from my own osdef.h	(jw).
- */
-#if defined(SIGWINCH)
-static RETSIGTYPE
-sig_winch SIGDEFARG(sigarg) {
-  /* this is not required on all systems, but it doesn't hurt anybody */
-  signal(SIGWINCH, (RETSIGTYPE (*)())sig_winch);
-  do_resize = TRUE;
-  SIGRETURN;
-}
-
-#endif
-
-#if defined(SIGINT)
-static RETSIGTYPE
-catch_sigint SIGDEFARG(sigarg) {
-  /* this is not required on all systems, but it doesn't hurt anybody */
-  signal(SIGINT, (RETSIGTYPE (*)())catch_sigint);
-  got_int = TRUE;
-  SIGRETURN;
-}
-
-#endif
-
-#if defined(SIGPWR)
-static RETSIGTYPE
-catch_sigpwr SIGDEFARG(sigarg) {
-  /* this is not required on all systems, but it doesn't hurt anybody */
-  signal(SIGPWR, (RETSIGTYPE (*)())catch_sigpwr);
-  /*
-   * I'm not sure we get the SIGPWR signal when the system is really going
-   * down or when the batteries are almost empty.  Just preserve the swap
-   * files and don't exit, that can't do any harm.
-   */
-  ml_sync_all(FALSE, FALSE);
-  SIGRETURN;
-}
-
-#endif
 
 #if (defined(HAVE_SETJMP_H) && defined(FEAT_LIBCALL)) || defined(PROTO)
 /*
@@ -355,9 +131,6 @@ catch_sigpwr SIGDEFARG(sigarg) {
  * problem and LONGJMP() was used.
  */
 void mch_startjmp()          {
-#ifdef SIGHASARG
-  lc_signal = 0;
-#endif
   lc_active = TRUE;
 }
 
@@ -374,130 +147,6 @@ void mch_didjmp()          {
 }
 
 #endif
-
-/*
- * This function handles deadly signals.
- * It tries to preserve any swap files and exit properly.
- * (partly from Elvis).
- * NOTE: Avoid unsafe functions, such as allocating memory, they can result in
- * a deadlock.
- */
-static RETSIGTYPE
-deathtrap SIGDEFARG(sigarg) {
-  static int entered = 0;           /* count the number of times we got here.
-                                       Note: when memory has been corrupted
-                                       this may get an arbitrary value! */
-#ifdef SIGHASARG
-  int i;
-#endif
-
-#if defined(HAVE_SETJMP_H)
-  /*
-   * Catch a crash in protected code.
-   * Restores the environment saved in lc_jump_env, which looks like
-   * SETJMP() returns 1.
-   */
-  if (lc_active) {
-# if defined(SIGHASARG)
-    lc_signal = sigarg;
-# endif
-    lc_active = FALSE;          /* don't jump again */
-    LONGJMP(lc_jump_env, 1);
-    /* NOTREACHED */
-  }
-#endif
-
-#ifdef SIGHASARG
-# ifdef SIGQUIT
-  /* While in mch_delay() we go to cooked mode to allow a CTRL-C to
-   * interrupt us.  But in cooked mode we may also get SIGQUIT, e.g., when
-   * pressing CTRL-\, but we don't want Vim to exit then. */
-  if (in_mch_delay && sigarg == SIGQUIT)
-    SIGRETURN;
-# endif
-
-  /* When SIGHUP, SIGQUIT, etc. are blocked: postpone the effect and return
-   * here.  This avoids that a non-reentrant function is interrupted, e.g.,
-   * free().  Calling free() again may then cause a crash. */
-  if (entered == 0
-      && (0
-# ifdef SIGHUP
-          || sigarg == SIGHUP
-# endif
-# ifdef SIGQUIT
-          || sigarg == SIGQUIT
-# endif
-# ifdef SIGTERM
-          || sigarg == SIGTERM
-# endif
-# ifdef SIGPWR
-          || sigarg == SIGPWR
-# endif
-# ifdef SIGUSR1
-          || sigarg == SIGUSR1
-# endif
-# ifdef SIGUSR2
-          || sigarg == SIGUSR2
-# endif
-          )
-      && !vim_handle_signal(sigarg))
-    SIGRETURN;
-#endif
-
-  /* Remember how often we have been called. */
-  ++entered;
-
-  /* Set the v:dying variable. */
-  set_vim_var_nr(VV_DYING, (long)entered);
-
-#ifdef SIGHASARG
-  /* try to find the name of this signal */
-  for (i = 0; signal_info[i].sig != -1; i++)
-    if (sigarg == signal_info[i].sig)
-      break;
-  deadly_signal = sigarg;
-#endif
-
-  full_screen = FALSE;          /* don't write message to the GUI, it might be
-                                 * part of the problem... */
-  /*
-   * If something goes wrong after entering here, we may get here again.
-   * When this happens, give a message and try to exit nicely (resetting the
-   * terminal mode, etc.)
-   * When this happens twice, just exit, don't even try to give a message,
-   * stack may be corrupt or something weird.
-   * When this still happens again (or memory was corrupted in such a way
-   * that "entered" was clobbered) use _exit(), don't try freeing resources.
-   */
-  if (entered >= 3) {
-    reset_signals();            /* don't catch any signals anymore */
-    may_core_dump();
-    if (entered >= 4)
-      _exit(8);
-    exit(7);
-  }
-  if (entered == 2) {
-    /* No translation, it may call malloc(). */
-    OUT_STR("Vim: Double signal, exiting\n");
-    out_flush();
-    getout(1);
-  }
-
-  /* No translation, it may call malloc(). */
-#ifdef SIGHASARG
-  sprintf((char *)IObuff, "Vim: Caught deadly signal %s\n",
-      signal_info[i].name);
-#else
-  sprintf((char *)IObuff, "Vim: Caught deadly signal\n");
-#endif
-
-  /* Preserve files and exit.  This sets the really_exiting flag to prevent
-   * calling free(). */
-  preserve_exit();
-
-
-  SIGRETURN;
-}
 
 #if defined(_REENTRANT) && defined(SIGCONT)
 /*
@@ -579,124 +228,10 @@ void mch_init()          {
   Rows = 24;
 
   out_flush();
-  set_signals();
 
 #ifdef MACOS_CONVERT
   mac_conv_init();
 #endif
-}
-
-static void set_signals()                 {
-#if defined(SIGWINCH)
-  /*
-   * WINDOW CHANGE signal is handled with sig_winch().
-   */
-  signal(SIGWINCH, (RETSIGTYPE (*)())sig_winch);
-#endif
-
-  /*
-   * We want the STOP signal to work, to make mch_suspend() work.
-   * For "rvim" the STOP signal is ignored.
-   */
-#ifdef SIGTSTP
-  signal(SIGTSTP, restricted ? SIG_IGN : SIG_DFL);
-#endif
-#if defined(_REENTRANT) && defined(SIGCONT)
-  signal(SIGCONT, sigcont_handler);
-#endif
-
-  /*
-   * We want to ignore breaking of PIPEs.
-   */
-#ifdef SIGPIPE
-  signal(SIGPIPE, SIG_IGN);
-#endif
-
-#ifdef SIGINT
-  catch_int_signal();
-#endif
-
-  /*
-   * Ignore alarm signals (Perl's alarm() generates it).
-   */
-#ifdef SIGALRM
-  signal(SIGALRM, SIG_IGN);
-#endif
-
-  /*
-   * Catch SIGPWR (power failure?) to preserve the swap files, so that no
-   * work will be lost.
-   */
-#ifdef SIGPWR
-  signal(SIGPWR, (RETSIGTYPE (*)())catch_sigpwr);
-#endif
-
-  /*
-   * Arrange for other signals to gracefully shutdown Vim.
-   */
-  catch_signals(deathtrap, SIG_ERR);
-
-}
-
-#if defined(SIGINT) || defined(PROTO)
-/*
- * Catch CTRL-C (only works while in Cooked mode).
- */
-static void catch_int_signal()                 {
-  signal(SIGINT, (RETSIGTYPE (*)())catch_sigint);
-}
-
-#endif
-
-void reset_signals()          {
-  catch_signals(SIG_DFL, SIG_DFL);
-#if defined(_REENTRANT) && defined(SIGCONT)
-  /* SIGCONT isn't in the list, because its default action is ignore */
-  signal(SIGCONT, SIG_DFL);
-#endif
-}
-
-static void catch_signals(
-        RETSIGTYPE (*func_deadly)(),
-        RETSIGTYPE (*func_other)()
-        )
-{
-  int i;
-
-  for (i = 0; signal_info[i].sig != -1; i++)
-    if (signal_info[i].deadly) {
-#if defined(HAVE_SIGALTSTACK) && defined(HAVE_SIGACTION)
-      struct sigaction sa;
-
-      /* Setup to use the alternate stack for the signal function. */
-      sa.sa_handler = func_deadly;
-      sigemptyset(&sa.sa_mask);
-# if defined(__linux__) && defined(_REENTRANT)
-      /* On Linux, with glibc compiled for kernel 2.2, there is a bug in
-       * thread handling in combination with using the alternate stack:
-       * pthread library functions try to use the stack pointer to
-       * identify the current thread, causing a SEGV signal, which
-       * recursively calls deathtrap() and hangs. */
-      sa.sa_flags = 0;
-# else
-      sa.sa_flags = SA_ONSTACK;
-# endif
-      sigaction(signal_info[i].sig, &sa, NULL);
-#else
-# if defined(HAVE_SIGALTSTACK) && defined(HAVE_SIGVEC)
-      struct sigvec sv;
-
-      /* Setup to use the alternate stack for the signal function. */
-      sv.sv_handler = func_deadly;
-      sv.sv_mask = 0;
-      sv.sv_flags = SV_ONSTACK;
-      sigvec(signal_info[i].sig, &sv, NULL);
-# else
-      signal(signal_info[i].sig, func_deadly);
-# endif
-#endif
-    } else if (func_other != SIG_ERR)
-      signal(signal_info[i].sig, func_other);
 }
 
 /*
@@ -1131,37 +666,13 @@ int mch_nodetype(char_u *name)
   return NODE_WRITABLE;
 }
 
-void mch_early_init()          {
-  /*
-   * Setup an alternative stack for signals.  Helps to catch signals when
-   * running out of stack space.
-   * Use of sigaltstack() is preferred, it's more portable.
-   * Ignore any errors.
-   */
-#if defined(HAVE_SIGALTSTACK) || defined(HAVE_SIGSTACK)
-  signal_stack = (char *)alloc(SIGSTKSZ);
-  init_signal_stack();
-#endif
-}
-
 #if defined(EXITFREE) || defined(PROTO)
 void mch_free_mem()          {
-# if defined(HAVE_SIGALTSTACK) || defined(HAVE_SIGSTACK)
-  vim_free(signal_stack);
-  signal_stack = NULL;
-# endif
   vim_free(oldtitle);
   vim_free(oldicon);
 }
 
 #endif
-
-static void may_core_dump()                 {
-  if (deadly_signal != 0) {
-    signal(deadly_signal, SIG_DFL);
-    kill(getpid(), deadly_signal);      /* Die using the signal we caught */
-  }
-}
 
 void mch_settmode(int tmode)
 {
@@ -1718,7 +1229,8 @@ int options;                    /* SHELL_*, see vim.h */
         }
       }
     } else if (pid == 0)   {    /* child */
-      reset_signals();                  /* handle signals normally */
+      /* TODO Remove ?
+       * reset_signals();                   handle signals normally */
 
       if (!show_shell_mess || (options & SHELL_EXPAND)) {
         int fd;
@@ -1768,7 +1280,8 @@ int options;                    /* SHELL_*, see vim.h */
            * group, killing the just started process.  Ignore SIGHUP
            * to avoid that. (suggested by Simon Schubert)
            */
-          signal(SIGHUP, SIG_IGN);
+          /* TODO Remove? 
+           * signal(SIGHUP, SIG_IGN); */
 #  endif
         }
 # endif
@@ -1816,8 +1329,10 @@ int options;                    /* SHELL_*, see vim.h */
        * While child is running, ignore terminating signals.
        * Do catch CTRL-C, so that "got_int" is set.
        */
-      catch_signals(SIG_IGN, SIG_ERR);
-      catch_int_signal();
+
+      /* TODO Remove ?
+       * catch_signals(SIG_IGN, SIG_ERR);
+       * catch_int_signal(); */
 
       /*
        * For the GUI we redirect stdin, stdout and stderr to our window.
@@ -2237,7 +1752,8 @@ finished:
       if (tmode == TMODE_RAW)
         settmode(TMODE_RAW);
       did_settmode = TRUE;
-      set_signals();
+      /* TODO Remove ?
+       * set_signals(); */
 
       if (WIFEXITED(status)) {
         /* LINTED avoid "bitwise operation on signed value" */

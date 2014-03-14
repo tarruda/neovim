@@ -16,12 +16,18 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang")
   if(DEFINED ENV{SANITIZE})
     message(STATUS "Enabling the sanitizers")
     add_definitions(-DEXITFREE) # is this necessary for LeakSanitizer?
-    add_definitions(-fno-sanitize-recover -fno-omit-frame-pointer
-      -fno-optimize-sibling-calls -fsanitize=address -fsanitize=undefined)
-    set(CMAKE_EXE_LINKER_FLAGS
-      "-fsanitize=address -fsanitize=undefined ${CMAKE_EXE_LINKER_FLAGS}")
-    set(CMAKE_SHARED_LINKER_FLAGS
-      "-fsanitize=address -fsanitize=undefined ${CMAKE_SHARED_LINKER_FLAGS}")
+    # add_definitions(-O0 -fno-sanitize-recover -fno-omit-frame-pointer
+    #   -fno-optimize-sibling-calls -fsanitize=thread) 
+    # set(CMAKE_EXE_LINKER_FLAGS
+    #   "-fsanitize=thread ${CMAKE_EXE_LINKER_FLAGS}")
+    # set(CMAKE_SHARED_LINKER_FLAGS
+    #   "-fsanitize=thread ${CMAKE_SHARED_LINKER_FLAGS}")
+     add_definitions(-fno-sanitize-recover -fno-omit-frame-pointer
+       -fno-optimize-sibling-calls -fsanitize=address -fsanitize=undefined)
+     set(CMAKE_EXE_LINKER_FLAGS
+       "-fsanitize=address -fsanitize=undefined ${CMAKE_EXE_LINKER_FLAGS}")
+     set(CMAKE_SHARED_LINKER_FLAGS
+       "-fsanitize=address -fsanitize=undefined ${CMAKE_SHARED_LINKER_FLAGS}")
   endif()
 endif()
 
