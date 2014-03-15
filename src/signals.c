@@ -41,7 +41,7 @@ void handle_int() {
 }
 
 void handle_winch() {
-  do_resize = TRUE;
+  shell_resized();
 }
 
 /*

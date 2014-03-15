@@ -1,4 +1,5 @@
 #include <stdbool.h>
+#include <pthread.h>
 
 #include <uv.h>
 
@@ -59,6 +60,8 @@ static int cursorhold_key(char_u *);
 static int signal_key(char_u *);
 
 void io_init() {
+  sigset_t set;
+
   /* uv_disable_stdio_inheritance(); */
   uv_mutex_init(&io_mutex);
   uv_cond_init(&io_cond);
@@ -67,6 +70,10 @@ void io_init() {
   uv_thread_create(&io_thread, io_start, NULL);
   /* Wait for the loop thread to be ready */
   io_wait();
+  /* Block signals in the main thread 
+   * TODO Search for a pure-libuv way of doing this */
+  sigfillset(&set);
+  pthread_sigmask(SIG_SETMASK, &set, NULL);
   io_unlock();
 }
 
@@ -186,6 +193,9 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
 
       before_blocking();
       io_wait();
+
+      if (pending_signal)
+        return signal_key(buf);
     }
   }
 
@@ -303,7 +313,7 @@ static void io_start(void *arg) {
   uv_signal_init(loop, &sterm);
   uv_signal_start(&sterm, signal_cb, SIGTERM);
   uv_signal_init(loop, &swinch);
-  uv_signal_start(&sterm, signal_cb, SIGWINCH);
+  uv_signal_start(&swinch, signal_cb, SIGWINCH);
   /* start processing events */
   uv_run(loop, UV_RUN_DEFAULT);
   /* free the event loop */
