@@ -18,13 +18,16 @@ test: build/bin/nvim
 unittest: build/bin/nvim
 	sh -e scripts/unittest.sh
 
-deps: .deps/usr/lib/libuv.a .deps/usr/lib/libluajit-5.1.a .deps/usr/bin/busted
+deps: .deps/usr/lib/libuv.a .deps/usr/lib/libluajit-5.1.a .deps/usr/lib/libmsgpack.a .deps/usr/bin/busted
 
 .deps/usr/lib/libuv.a:
 	sh -e scripts/compile-libuv.sh
 
 .deps/usr/lib/libluajit-5.1.a:
 	sh -e scripts/compile-lua.sh
+
+.deps/usr/lib/libmsgpack.a:
+	sh -e scripts/compile-msgpack.sh
 
 .deps/usr/bin/busted:
 	sh -e scripts/setup-test-tools.sh
@@ -36,7 +39,6 @@ cmake: clean deps
 clean:
 	rm -rf build
 	$(MAKE) -C src/testdir clean
-	$(MAKE) -C test/includes clean
 
 install: build/bin/nvim
 	$(MAKE) -C build install
