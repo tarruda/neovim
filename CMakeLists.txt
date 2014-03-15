@@ -45,6 +45,10 @@ endif()
 find_package(LibUV REQUIRED)
 include_directories(${LibUV_INCLUDE_DIRS})
 
+# Require msgpack
+find_package(LibMsgpack REQUIRED)
+include_directories(${LibMsgpack_INCLUDE_DIRS})
+
 include_directories ("${PROJECT_BINARY_DIR}/config")
 include_directories ("${PROJECT_SOURCE_DIR}/src")
 

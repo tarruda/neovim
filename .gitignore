@@ -32,6 +32,7 @@
 
 # luarocks, not added as a subtree because of the large number of blobs
 /third-party/luarocks
+/third-party/msgpack
 
 # luajit files
 /third-party/luajit/src/host/buildvm

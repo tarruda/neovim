@@ -39,7 +39,7 @@ if(NOT DEFINED ENV{SKIP_UNITTEST})
 endif()
 
 # The libraries we link against for nvim
-set(NVIM_LINK_LIBRARIES m ${LibUV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+set(NVIM_LINK_LIBRARIES m ${LibMsgpack_LIBRARIES} ${LibUV_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 
 # Add any libraries needed for a specific platform
 if(HAVE_CLOCK_GETTIME)
