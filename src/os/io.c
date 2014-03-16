@@ -297,7 +297,7 @@ void mch_breakcheck() {
 static void io_start(void *arg) {
   uv_loop_t *loop;
   uv_idle_t idler; 
-  uv_signal_t shup, squit, sabrt, sterm, swinch, ssegv;
+  uv_signal_t sint, shup, squit, sabrt, sterm, swinch;
   uv_stream_t stdin_stream;
 
   memset(&in_buffer, 0, sizeof(in_buffer));
@@ -316,6 +316,8 @@ static void io_start(void *arg) {
   uv_pipe_init(loop, (uv_pipe_t *)&stdin_stream, 0);
   uv_pipe_open((uv_pipe_t *)&stdin_stream, read_cmd_fd);
   /* signals */
+  uv_signal_init(loop, &sint);
+  uv_signal_start(&sint, signal_cb, SIGINT);
   uv_signal_init(loop, &shup);
   uv_signal_start(&shup, signal_cb, SIGHUP);
   uv_signal_init(loop, &squit);
@@ -326,8 +328,6 @@ static void io_start(void *arg) {
   uv_signal_start(&sterm, signal_cb, SIGTERM);
   uv_signal_init(loop, &swinch);
   uv_signal_start(&swinch, signal_cb, SIGWINCH);
-  uv_signal_init(loop, &ssegv);
-  uv_signal_start(&ssegv, signal_cb, SIGSEGV);
   /* start processing events */
   uv_run(loop, UV_RUN_DEFAULT);
   /* free the event loop */
