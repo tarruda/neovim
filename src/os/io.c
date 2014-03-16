@@ -45,7 +45,6 @@ static input_buffer_T in_buffer;
 /* Actual conditions behind the io_cond */
 static bool signal_consumed = false, activity = false,
             data_consumed = false, running = false, eof = false;
-
 static void io_start(void *);
 static void loop_running(uv_idle_t *, int);
 static void stop_loop(uv_async_t *, int);
@@ -85,7 +84,12 @@ void io_init() {
 void mch_exit(int r) {
   exiting = TRUE;
   /* stop libuv loop */
-  uv_async_send(&stop_loop_async);
+  io_lock();
+  /* uv_async_send may try to write on a closed FD, causing an `abort`.
+   * Make sure this doesn't happen by checking if eof is set */
+  if (!eof)
+    uv_async_send(&stop_loop_async);
+  io_unlock();
   /* wait for the event loop thread */
   uv_thread_join(&io_thread);
 
@@ -406,10 +410,13 @@ static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf) {
     if (cnt == UV_EOF) {
       /* EOF, stop the event loop and signal the main thread. This will cause
        * vim to exit */
-      eof = true;
       io_lock();
-      io_signal(&activity);
-      uv_stop(stream->loop);
+      if (!eof) {
+        /* Dont close the loop if it was already closed in `mch_exit` */
+        eof = true;
+        io_signal(&activity);
+        uv_stop(stream->loop);
+      }
       io_unlock();
     } else if (cnt == UV_ENOBUFS) {
       io_lock();
