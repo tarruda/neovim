@@ -31,19 +31,21 @@ if [ "$CC" = "clang" ]; then
 	symbolizer=/usr/bin/llvm-symbolizer-3.4
 
 	export SKIP_UNITTEST=1
-	export SANITIZE=1
 	export ASAN_SYMBOLIZER_PATH=$symbolizer
 	export ASAN_OPTIONS="detect_leaks=1:log_path=$tmpdir/asan"
 	export TSAN_OPTIONS="suppressions=$(pwd)/.tsan-suppress:external_symbolizer_path=$symbolizer:log_path=$tmpdir/tsan"
 	export UBSAN_OPTIONS="log_path=$tmpdir/ubsan" # not sure if this works
 
-	make cmake CMAKE_EXTRA_FLAGS="-DCMAKE_INSTALL_PREFIX=$install_dir"
-	make
-	if ! make test; then
-		reset
+	for san in thread address; do
+		export SANITIZE=$san
+		make cmake CMAKE_EXTRA_FLAGS="-DCMAKE_INSTALL_PREFIX=$install_dir"
+		make
+		if ! make test; then
+			reset
+			check_and_report
+		fi
 		check_and_report
-	fi
-	check_and_report
+	done
 	make install
 else
 	export BUSTED_OUTPUT_TYPE="TAP"
