@@ -76,9 +76,9 @@ void io_init() {
   uv_thread_create(&io_thread, io_start, NULL);
   /* Wait for the loop thread to be ready */
   io_wait(&running);
-  /* Block signals in the main thread 
-   * TODO Search for a pure-libuv way of doing this */
+  /* Block all signals except SIGTSTP in the main thread */
   sigfillset(&set);
+  sigdelset(&set, SIGTSTP);
   pthread_sigmask(SIG_SETMASK, &set, NULL);
   io_unlock();
 }
@@ -301,12 +301,20 @@ void mch_breakcheck() {
 }
 
 static void io_start(void *arg) {
+  sigset_t set;
   uv_loop_t *loop;
   uv_idle_t idler; 
   uv_signal_t sint, shup, squit, sabrt, sterm, swinch;
   uv_stream_t stdin_stream;
 
+#ifdef DEBUG
   memset(&in_buffer, 0, sizeof(in_buffer));
+#endif
+
+  /* Block SIGTSTP on this thread */
+  sigemptyset(&set);
+  sigaddset(&set, SIGTSTP);
+  pthread_sigmask(SIG_SETMASK, &set, NULL);
 
   UNUSED(arg);
   loop = uv_loop_new();
