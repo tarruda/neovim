@@ -207,9 +207,9 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
         return cursorhold_key(buf);
       }
       before_blocking();
+      io_wait(&activity);
     }
 
-    io_wait(&activity);
 
     if (pending_signal) {
       io_unlock();
@@ -232,6 +232,7 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
   }
 
   rv = read_from_input_buf(buf, (long)maxlen);
+  io_signal(&data_consumed);
   io_unlock();
 
   return rv;
