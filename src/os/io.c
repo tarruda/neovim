@@ -290,14 +290,12 @@ void mch_delay(long ms, int ignoreinput) {
  * In cooked mode we should get SIGINT, no need to check.
  */
 void mch_breakcheck() {
-  /*
-   * Apparently this has no effect on the tests, so leave it commented for now.
-   * Soon we'll handle SIGINTs and user input in the UI, so this won't matter
-   * anyway
-   */
+  io_lock();
   
   if (curr_tmode == TMODE_RAW && mch_char_avail())
     fill_input_buf(FALSE);
+
+  io_unlock();
 }
 
 static void io_start(void *arg) {
