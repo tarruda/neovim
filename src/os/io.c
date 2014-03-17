@@ -1,4 +1,5 @@
 #include <stdbool.h>
+#include <stdint.h>
 #include <pthread.h>
 
 #include <uv.h>
@@ -57,9 +58,10 @@ static int cursorhold_key(char_u *);
 static int signal_key(char_u *);
 static void io_lock();
 static void io_unlock();
-static void io_timedwait(long ms, bool *condition);
+static void io_timedwait(uint64_t ms, bool *condition);
 static void io_wait(bool *condition);
 static void io_signal(bool *condition);
+static void delay(uint64_t ms);
 
 void io_init() {
   sigset_t set;
@@ -242,7 +244,7 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
 }
 
 /* FIXME This is a temporary function, used to satisfy the way vim currently
- * reads characters. Soon it will be removed */
+ * reads characters using another input buffer . */
 ssize_t mch_inchar_read(char *buf, size_t count) {
   size_t rv = 0;
 
@@ -257,7 +259,7 @@ int mch_char_avail() {
   return in_buffer.rpos < in_buffer.wpos;
 }
 
-void mch_delay(long msec, int ignoreinput) {
+void mch_delay(long ms, int ignoreinput) {
   int old_tmode;
 
   uv_mutex_lock(&delay_mutex);
@@ -272,12 +274,12 @@ void mch_delay(long msec, int ignoreinput) {
     if (curr_tmode == TMODE_RAW)
       settmode(TMODE_SLEEP);
 
-    (void)uv_cond_timedwait(&delay_cond, &delay_mutex, msec * 1000000);
+    delay(ms);
 
     settmode(old_tmode);
     in_mch_delay = FALSE;
   } else {
-    (void)uv_cond_timedwait(&delay_cond, &delay_mutex, msec * 1000000);
+    delay(ms);
   }
 
   uv_mutex_unlock(&delay_mutex);
@@ -434,7 +436,16 @@ static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf) {
    * that */
   in_buffer.wpos += cnt;
   /* It's very likely that most of the "allocated" space wasn't used, so adjust
-   * `apos` to to `wpos` */
+   * `apos` to to `wpos`. FIXME This probably won't work on windows, as it
+   * may call the alloc callback two times before the read callback. Quoting
+   * @saghul(libuv dev):
+   *
+   * "Theoretically alloc_cb calls come right before read_cb, but this could
+   * not be the case on Windows. I have never seen this happen in pyuv (I use a
+   * statically allocated fixed size buffer for everything, but it could be the
+   * Python GIL helping me here). You should be ready to handle alloc_cb,
+   * alloc_cb, read_cb, read_cb."
+   *  */
   in_buffer.apos = in_buffer.wpos;
   if (cnt > 0) {
     io_signal(&activity);
@@ -512,15 +523,20 @@ static void io_wait(bool *condition) {
   *condition = false;
 }
 
-static void io_timedwait(long ms, bool *condition) {
-  while (!(*condition)) {
-    /* FIXME To deal with spurious wakeups correctly we must subtract the time
-     * slept on each iteration. This needs support from the libuv-side,
-     * probably by changing this function to receive an extra 'out parameter'
-     * that will contain the time ellapsed */
-    if (uv_cond_timedwait(&io_cond, &io_mutex, ms * 1000000) == UV_ETIMEDOUT)
+static void io_timedwait(uint64_t ms, bool *condition) {
+  uint64_t hrtime;
+
+  ms *= 1000000; /* convert to nanoseconds */
+
+  while (ms > 0 && !(*condition)) {
+    hrtime =  uv_hrtime();
+    if (uv_cond_timedwait(&io_cond, &io_mutex, ms) == UV_ETIMEDOUT)
       break;
+    /* If we had a spurious wakeup, ensure the next iteration will only sleep
+     * for the remaining time */
+    ms -= uv_hrtime() - hrtime;
   }
+
   *condition = false;
 }
 
@@ -529,3 +545,15 @@ static void io_signal(bool *condition) {
   uv_cond_signal(&io_cond);
 }
 
+static void delay(uint64_t ms) {
+  uint64_t hrtime;
+
+  ms *= 1000000; /* convert to nanoseconds */
+
+  while (ms > 0) {
+    hrtime =  uv_hrtime();
+    if (uv_cond_timedwait(&delay_cond, &delay_mutex, ms) == UV_ETIMEDOUT)
+      break;
+    ms -= uv_hrtime() - hrtime;
+  }
+}
