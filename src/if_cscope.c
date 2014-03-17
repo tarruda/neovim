@@ -25,6 +25,7 @@
 #include "window.h"
 
 #include <sys/types.h>
+#include <signal.h>
 #include <sys/stat.h>
 #if defined(UNIX)
 # include <sys/wait.h>
