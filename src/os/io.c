@@ -191,30 +191,24 @@ int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
     }
 
   } else {
-    if (trigger_cursorhold() && maxlen >= 3) {
-      /* When doing a blocking read, first block for 'updatetime' if a
-       * cursorhold event can be triggered */
-      io_timedwait(p_ut, &activity);
+    io_timedwait(p_ut, &activity);
 
-      if (pending_signal) {
-        io_unlock();
-        return signal_key(buf);
-      }
+    if (pending_signal) {
+      io_unlock();
+      return signal_key(buf);
+    }
 
-      if (in_buffer.wpos == in_buffer.rpos) {
+    if (in_buffer.wpos == in_buffer.rpos) {
+      if (trigger_cursorhold() && maxlen >= 3 &&
+          !typebuf_changed(tb_change_cnt)) {
+        /* Nothing happened in 'updatetime', if a cursorhold event can
+         * be triggered, do it now. */
         io_unlock();
         return cursorhold_key(buf);
       }
+      before_blocking();
     }
 
-    /* Before blocking check for EOF first or we may end up in a deadlock */
-    if (eof) {
-      io_unlock();
-      read_error_exit();
-      return 0;
-    }
-
-    before_blocking();
     io_wait(&activity);
 
     if (pending_signal) {
@@ -291,7 +285,7 @@ void mch_delay(long ms, int ignoreinput) {
  */
 void mch_breakcheck() {
   io_lock();
-  
+
   if (curr_tmode == TMODE_RAW && mch_char_avail())
     fill_input_buf(FALSE);
 
@@ -460,7 +454,7 @@ static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf) {
      * use, "deallocate" it now. */
     in_buffer.apos -= buf->len;
   }
-  
+
   /* After setting the read_cmd_fd to O_NONBLOCK, the bytes entered by the user
    * always have a trailing 0. Without the following 'else', typing
    * interactively will display 'garbage'(Need to figure out why) */ 
