@@ -6,7 +6,7 @@
 #include "main.h"
 #include "misc1.h"
 #include "term.h"
-#include "os/os.h"
+#include "os/io.h"
 
 
 static void handle_deadly(int signum);
@@ -32,7 +32,7 @@ char * signal_name(int signum) {
 }
 
 void handle_signal() {
-  int sig = next_signal();
+  int sig = io_consume_signal();
 
   switch (sig) {
     case SIGINT:

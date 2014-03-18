@@ -30,7 +30,9 @@
 #include "normal.h"
 #include "option.h"
 #include "os_unix.h"
-#include "os/os.h"
+#include "os/io.h"
+#include "os/input.h"
+#include "os/time.h"
 #include "screen.h"
 #include "term.h"
 #include "window.h"
@@ -484,7 +486,7 @@ void fill_input_buf(int exit_on_error)
 
   len = 0;      /* to avoid gcc warning */
   for (try = 0; try < 100; ++try) {
-    len = mch_inchar_read((char *)inbuf + inbufcount, (size_t)((INBUFLEN -
+    len = io_read((char *)inbuf + inbufcount, (size_t)((INBUFLEN -
             inbufcount) / input_conv.vc_factor));
 
     if (len > 0 || got_int)

@@ -47,6 +47,8 @@
 #include "term.h"
 #include "ui.h"
 #include "os/os.h"
+#include "os/io.h"
+#include "os/time.h"
 
 #include "os_unixx.h"       /* unix includes for os_unix.c only */
 
@@ -232,6 +234,8 @@ void mch_init()          {
 #ifdef MACOS_CONVERT
   mac_conv_init();
 #endif
+
+  io_start();
 }
 
 /*
