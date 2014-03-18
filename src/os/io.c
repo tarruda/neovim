@@ -25,7 +25,7 @@ static bool signal_consumed = false, activity = false,
 static void event_loop(void *);
 static void loop_running(uv_idle_t *, int);
 static void stop_loop(uv_async_t *, int);
-static void alloc_buffer_cb(uv_handle_t *, size_t, uv_buf_t *);
+static void alloc_cb(uv_handle_t *, size_t, uv_buf_t *);
 static void read_cb(uv_stream_t *, ssize_t, const uv_buf_t *);
 static void signal_cb(uv_signal_t *, int signum);
 static void io_lock();
@@ -193,7 +193,7 @@ static void event_loop(void *arg) {
 static void loop_running(uv_idle_t *handle, int status) {
   uv_idle_stop(handle);
   io_lock();
-  uv_read_start((uv_stream_t *)handle->data, alloc_buffer_cb, read_cb);
+  uv_read_start((uv_stream_t *)handle->data, alloc_cb, read_cb);
   io_notify(&running);
   io_unlock();
 }
@@ -203,7 +203,7 @@ static void stop_loop(uv_async_t *handle, int status) {
 }
 
 /* Called by libuv to allocate memory for reading. */
-static void alloc_buffer_cb(uv_handle_t *handle, size_t ssize, uv_buf_t *rv)
+static void alloc_cb(uv_handle_t *handle, size_t ssize, uv_buf_t *rv)
 {
   uint32_t available;
 
@@ -221,14 +221,9 @@ static void alloc_buffer_cb(uv_handle_t *handle, size_t ssize, uv_buf_t *rv)
 }
 
 /*
- * The actual reading was already performed by libuv, this callback will do one
- * of the following:
- *    - If EOF was reached, it will set appropriate flags and signal the main
- *      thread to continue
- *    - If the alloc_buffer_cb didnt allocate anything, then it will pause the
- *      input stream.
- *    - If 'cnt' > 0, it will update the buffer write position(wpos) to reflect
- *      what was actually written.
+ * Callback invoked by libuv after it copies the data into the buffer provided
+ * by `alloc_cb`. This is also called on EOF or when `alloc_cb` returns a
+ * 0-length buffer.
  */
 static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf) {
   uint32_t move_count;
@@ -248,24 +243,22 @@ static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf) {
         io_notify(&activity);
       }
     } else if (cnt == UV_ENOBUFS) {
-      while (BUF_SIZE - in_buffer.apos == 0) {
-        if (in_buffer.apos > in_buffer.wpos) {
-          in_buffer.apos = in_buffer.wpos;
-        } else {
-          if (in_buffer.rpos == 0) {
-            /* Pause until the main thread consumes some data. */
-            io_notify(&activity);
-            io_wait(&input_consumed);
-          }
-          /* Restore `apos` to `wpos` */
-          /* Move data to the 'left' as much as possible. */
-          move_count = in_buffer.apos - in_buffer.rpos;
-          memmove(in_buffer.data, in_buffer.data + in_buffer.rpos, move_count);
-          in_buffer.apos -= in_buffer.rpos;
-          in_buffer.wpos -= in_buffer.rpos;
-          in_buffer.rpos = 0;
-        } 
-      }
+      if (in_buffer.apos > in_buffer.wpos) {
+        /* Restore `apos` to `wpos` */
+        in_buffer.apos = in_buffer.wpos;
+      } else {
+        if (in_buffer.rpos == 0) {
+          /* Pause until the main thread consumes some data. */
+          io_notify(&activity);
+          io_wait(&input_consumed);
+        }
+        /* Move data to the 'left' as much as possible. */
+        move_count = in_buffer.apos - in_buffer.rpos;
+        memmove(in_buffer.data, in_buffer.data + in_buffer.rpos, move_count);
+        in_buffer.apos -= in_buffer.rpos;
+        in_buffer.wpos -= in_buffer.rpos;
+        in_buffer.rpos = 0;
+      } 
     } else {
       fprintf(stderr, "Unexpected error %ld\n", cnt);
     }
