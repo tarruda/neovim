@@ -74,6 +74,8 @@
 # include <sys/time.h>
 #endif
 
+#include <signal.h>
+
 #if defined(DIRSIZ) && !defined(MAXNAMLEN)
 # define MAXNAMLEN DIRSIZ
 #endif
