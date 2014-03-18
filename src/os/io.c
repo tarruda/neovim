@@ -28,11 +28,11 @@ static void stop_loop(uv_async_t *, int);
 static void alloc_buffer_cb(uv_handle_t *, size_t, uv_buf_t *);
 static void read_cb(uv_stream_t *, ssize_t, const uv_buf_t *);
 static void signal_cb(uv_signal_t *, int signum);
-static void lock();
-static void unlock();
-static void timedwait(uint64_t ms, bool *condition);
-static void wait(bool *condition);
-static void notify(bool *condition);
+static void io_lock();
+static void io_unlock();
+static void io_timedwait(uint64_t ms, bool *condition);
+static void io_wait(bool *condition);
+static void io_notify(bool *condition);
 
 
 void io_start() {
@@ -42,28 +42,28 @@ void io_start() {
   /* uv_disable_stdio_inheritance(); */
   uv_mutex_init(&mutex);
   uv_cond_init(&cond);
-  lock();
+  io_lock();
   /* The event loop runs in a background thread */
   uv_thread_create(&thread, event_loop, NULL);
   /* Wait for the loop thread to be ready */
-  wait(&running);
+  io_wait(&running);
   /* Block all signals except SIGTSTP in the main thread */
   sigfillset(&set);
   sigdelset(&set, SIGTSTP);
   pthread_sigmask(SIG_SETMASK, &set, NULL);
-  unlock();
+  io_unlock();
 }
 
 void io_stop() {
-  lock();
+  io_lock();
   /* uv_async_send may try to write on a closed FD, causing an `abort`.
    * Make sure this doesn't happen by checking if eof is set */
   if (!eof) {
     eof = true;
     uv_async_send(&stop_loop_async);
   }
-  unlock();
-  /* wait for the event loop thread */
+  io_unlock();
+  /* io_wait for the event loop thread */
   uv_thread_join(&thread);
 }
 
@@ -71,14 +71,14 @@ void io_stop() {
 uint32_t io_read(char *buf, uint32_t count) {
   uint32_t rv = 0;
 
-  lock();
+  io_lock();
 
   /* Copy at most 'count' to the buffer argument */
   while (in_buffer.rpos < in_buffer.wpos && rv < count)
     buf[rv++] = in_buffer.data[in_buffer.rpos++];
 
-  notify(&input_consumed);
-  unlock();
+  io_notify(&input_consumed);
+  io_unlock();
 
   return rv;
 }
@@ -87,42 +87,42 @@ uint32_t io_read(char *buf, uint32_t count) {
 poll_result_t io_poll(int32_t ms) {
   poll_result_t rv;
 
-  lock();
+  io_lock();
 
   if (eof && in_buffer.rpos == in_buffer.wpos) {
-    unlock();
+    io_unlock();
     return POLL_EOF;
   }
 
   if (ms == 0) {
     rv = in_buffer.rpos < in_buffer.wpos ? POLL_INPUT : POLL_NONE;
-    unlock();
+    io_unlock();
     return rv;
   }
 
   if (pending_signal) {
-    unlock();
+    io_unlock();
     return POLL_SIGNAL;
   }
 
   if (ms < 0) {
-    wait(&activity);
+    io_wait(&activity);
   } else {
     /* Wait up to 'ms' milliseconds */
-    timedwait(ms, &activity);
+    io_timedwait(ms, &activity);
   }
 
   if (pending_signal) {
-    unlock();
+    io_unlock();
     return POLL_SIGNAL;
   }
 
   if (in_buffer.rpos < in_buffer.wpos) {
-    unlock();
+    io_unlock();
     return POLL_INPUT;
   }
 
-  unlock();
+  io_unlock();
 
   return POLL_NONE;
 }
@@ -132,11 +132,11 @@ int io_consume_signal() {
    * is blocking until this function is called. */
   int rv;
 
-  lock();
-  notify(&signal_consumed);
+  io_lock();
+  io_notify(&signal_consumed);
   rv = pending_signal;
   pending_signal = 0;
-  unlock();
+  io_unlock();
 
   return rv;
 }
@@ -192,10 +192,10 @@ static void event_loop(void *arg) {
 /* Signal the main thread that the loop started running */
 static void loop_running(uv_idle_t *handle, int status) {
   uv_idle_stop(handle);
-  lock();
+  io_lock();
   uv_read_start((uv_stream_t *)handle->data, alloc_buffer_cb, read_cb);
-  notify(&running);
-  unlock();
+  io_notify(&running);
+  io_unlock();
 }
 
 static void stop_loop(uv_async_t *handle, int status) {
@@ -235,7 +235,7 @@ static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf) {
 
   UNUSED(buf);
 
-  lock();
+  io_lock();
 
   if (cnt < 0) {
     if (cnt == UV_EOF) {
@@ -245,7 +245,7 @@ static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf) {
         /* Dont close the loop if it was already closed in `io_stop` */
         eof = true;
         uv_stop(stream->loop);
-        notify(&activity);
+        io_notify(&activity);
       }
     } else if (cnt == UV_ENOBUFS) {
       while (BUF_SIZE - in_buffer.apos == 0) {
@@ -254,8 +254,8 @@ static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf) {
         } else {
           if (in_buffer.rpos == 0) {
             /* Pause until the main thread consumes some data. */
-            notify(&activity);
-            wait(&input_consumed);
+            io_notify(&activity);
+            io_wait(&input_consumed);
           }
           /* Restore `apos` to `wpos` */
           /* Move data to the 'left' as much as possible. */
@@ -269,7 +269,7 @@ static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf) {
     } else {
       fprintf(stderr, "Unexpected error %ld\n", cnt);
     }
-    unlock();
+    io_unlock();
     return;
   }
 
@@ -278,35 +278,35 @@ static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf) {
   in_buffer.wpos += cnt;
 
   if (cnt > 0) {
-    notify(&activity);
+    io_notify(&activity);
   }
 
-  unlock();
+  io_unlock();
 }
 
 static void signal_cb(uv_signal_t *handle, int signum) {
-  lock();
+  io_lock();
   pending_signal = signum;
-  notify(&activity); /* unblock */
-  wait(&signal_consumed);
-  unlock();
+  io_notify(&activity); /* unblock */
+  io_wait(&signal_consumed);
+  io_unlock();
 }
 
 /* Helpers for dealing with io synchronization */
-static void lock() {
+static void io_lock() {
   uv_mutex_lock(&mutex);
 }
 
-static void unlock() {
+static void io_unlock() {
   uv_mutex_unlock(&mutex);
 }
 
-static void wait(bool *condition) {
+static void io_wait(bool *condition) {
   while (!(*condition)) uv_cond_wait(&cond, &mutex);
   *condition = false;
 }
 
-static void timedwait(uint64_t ms, bool *condition) {
+static void io_timedwait(uint64_t ms, bool *condition) {
   uint64_t hrtime;
   int64_t ns = ms * 1000000; /* convert to nanoseconds */
 
@@ -322,7 +322,7 @@ static void timedwait(uint64_t ms, bool *condition) {
   *condition = false;
 }
 
-static void notify(bool *condition) {
+static void io_notify(bool *condition) {
   *condition = true;
   uv_cond_signal(&cond);
 }
