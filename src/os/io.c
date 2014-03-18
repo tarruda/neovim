@@ -1,307 +1,153 @@
-#include <stdbool.h>
-#include <stdint.h>
-#include <pthread.h>
-
 #include <uv.h>
 
-#include "./os.h"
-#include "../vim.h"
-#include "../term.h"
-#include "../os_unix.h"
-#include "../memline.h"
-#include "../misc2.h"
-#include "../ui.h"
-#include "../fileio.h"
-#include "../getchar.h"
-#include "../message.h"
-#include "../syntax.h"
-#include "../screen.h"
+#include "os/io.h"
+#include "os/time.h"
+#include "vim.h"
+#include "misc2.h"
 
 #define UNUSED(x) (void)(x)
 #define BUF_SIZE 4096
 
 typedef struct {
-  /* 
-   * Input buffer structure. This contains a contiguous memory chunk and three
-   * pointers(allocated, written and read positions) that are used to implement
-   * a simple form of memory management for incoming data without requiring
-   * calls to the system memory allocator.
-   *
-   * Probably the 'apos' (allocated pos) pointer isn't needed, but omitting it
-   * would mean we are assuming details about libuv implementation which
-   * wouldn't be very robust.
-   */ 
-  unsigned int apos, wpos, rpos;
+  uint32_t rpos, wpos, apos;
   char_u data[BUF_SIZE];
 } input_buffer_T;
 
 static int pending_signal = 0;
-static uv_thread_t io_thread;
-static uv_mutex_t io_mutex;
-static uv_cond_t io_cond;
-static uv_mutex_t delay_mutex;
-static uv_cond_t delay_cond;
+static uv_thread_t thread;
+static uv_mutex_t mutex;
+static uv_cond_t cond;
 static uv_async_t stop_loop_async;
 static input_buffer_T in_buffer;
-/* Actual conditions behind the io_cond */
+/* Actual conditions behind the cond */
 static bool signal_consumed = false, activity = false,
-            data_consumed = false, running = false, eof = false;
-static void io_start(void *);
+            input_consumed = false, running = false, eof = false;
+static void event_loop(void *);
 static void loop_running(uv_idle_t *, int);
 static void stop_loop(uv_async_t *, int);
 static void alloc_buffer_cb(uv_handle_t *, size_t, uv_buf_t *);
 static void read_cb(uv_stream_t *, ssize_t, const uv_buf_t *);
 static void signal_cb(uv_signal_t *, int signum);
-static void exit_scroll(void);
-static int special_key(char_u *, char_u);
-static int cursorhold_key(char_u *);
-static int signal_key(char_u *);
-static void io_lock();
-static void io_unlock();
-static void io_timedwait(uint64_t ms, bool *condition);
-static void io_wait(bool *condition);
-static void io_signal(bool *condition);
-static void delay(uint64_t ms);
+static void lock();
+static void unlock();
+static void timedwait(uint64_t ms, bool *condition);
+static void wait(bool *condition);
+static void notify(bool *condition);
 
-void io_init() {
+
+void io_start() {
   sigset_t set;
 
+  time_init();
   /* uv_disable_stdio_inheritance(); */
-  uv_mutex_init(&io_mutex);
-  uv_cond_init(&io_cond);
-  uv_mutex_init(&delay_mutex);
-  uv_cond_init(&delay_cond);
-  io_lock();
+  uv_mutex_init(&mutex);
+  uv_cond_init(&cond);
+  lock();
   /* The event loop runs in a background thread */
-  uv_thread_create(&io_thread, io_start, NULL);
+  uv_thread_create(&thread, event_loop, NULL);
   /* Wait for the loop thread to be ready */
-  io_wait(&running);
+  wait(&running);
   /* Block all signals except SIGTSTP in the main thread */
   sigfillset(&set);
   sigdelset(&set, SIGTSTP);
   pthread_sigmask(SIG_SETMASK, &set, NULL);
-  io_unlock();
+  unlock();
 }
 
-void mch_exit(int r) {
-  exiting = TRUE;
-  /* stop libuv loop */
-  io_lock();
+void io_stop() {
+  lock();
   /* uv_async_send may try to write on a closed FD, causing an `abort`.
    * Make sure this doesn't happen by checking if eof is set */
-  if (!eof)
+  if (!eof) {
+    eof = true;
     uv_async_send(&stop_loop_async);
-  io_unlock();
+  }
+  unlock();
   /* wait for the event loop thread */
-  uv_thread_join(&io_thread);
-
-  {
-    settmode(TMODE_COOK);
-    mch_restore_title(3);       /* restore xterm title and icon name */
-    /*
-     * When t_ti is not empty but it doesn't cause swapping terminal
-     * pages, need to output a newline when msg_didout is set.  But when
-     * t_ti does swap pages it should not go to the shell page.  Do this
-     * before stoptermcap().
-     */
-    if (swapping_screen() && !newline_on_exit)
-      exit_scroll();
-
-    /* Stop termcap: May need to check for T_CRV response, which
-     * requires RAW mode. */
-    stoptermcap();
-
-    /*
-     * A newline is only required after a message in the alternate screen.
-     * This is set to TRUE by wait_return().
-     */
-    if (!swapping_screen() || newline_on_exit)
-      exit_scroll();
-
-    /* Cursor may have been switched off without calling starttermcap()
-     * when doing "vim -u vimrc" and vimrc contains ":q". */
-    if (full_screen)
-      cursor_on();
-  }
-  out_flush();
-  ml_close_all(TRUE);           /* remove all memfiles */
-
-#ifdef EXITFREE
-  free_all_mem();
-#endif
-
-  exit(r);
+  uv_thread_join(&thread);
 }
 
-int next_signal() {
-  /* FIXME pending_signal must be a queue of signals, right now the event loop
-   * is blocking until this function is called. */
-  int rv;
+/* Replacement for `read(2)` */
+uint32_t io_read(char *buf, uint32_t count) {
+  uint32_t rv = 0;
 
-  io_lock();
-  io_signal(&signal_consumed);
-  rv = pending_signal;
-  pending_signal = 0;
-  io_unlock();
-
-  return rv;
-}
-
-/*
- * This is ugly, but necessary at least until we start messing with vget*
- * functions a long time from now
- */
-int mch_inchar(char_u *buf, int maxlen, long wtime, int tb_change_cnt) {
-  int rv;
-
-  io_lock();
-
-  if (pending_signal) {
-    io_unlock();
-    return signal_key(buf);
-  }
-
-  if (in_buffer.rpos < in_buffer.wpos) {
-    /* Take whatever data is available */
-    rv = read_from_input_buf(buf, (long)maxlen);
-    /* If the loop is paused due to full buffer, notify it that
-     * we consumed some data and it may read more */
-    io_signal(&data_consumed);
-    io_unlock();
-    return rv;
-  }
-
-  if (wtime >= 0) {
-    /* Wait up to 'wtime' milliseconds */
-    io_timedwait(wtime, &activity);
-
-    if (pending_signal) {
-      io_unlock();
-      return signal_key(buf);
-    }
-
-    if (in_buffer.wpos == in_buffer.rpos) {
-      io_unlock();
-      /* Didn't read anything */
-      if (eof) {
-        /* Exit when stdin is closed */
-        read_error_exit();
-      }
-      return 0;
-    }
-
-  } else {
-    io_timedwait(p_ut, &activity);
-
-    if (pending_signal) {
-      io_unlock();
-      return signal_key(buf);
-    }
-
-    if (in_buffer.wpos == in_buffer.rpos) {
-      if (trigger_cursorhold() && maxlen >= 3 &&
-          !typebuf_changed(tb_change_cnt)) {
-        /* Nothing happened in 'updatetime', if a cursorhold event can
-         * be triggered, do it now. */
-        io_unlock();
-        return cursorhold_key(buf);
-      }
-      before_blocking();
-      io_wait(&activity);
-    }
-
-
-    if (pending_signal) {
-      io_unlock();
-      return signal_key(buf);
-    }
-  }
-
-  /* This was adapted from the original mch_inchar code.  Not sure why it's
-   * here, but I guess it has something to do with netbeans support which was
-   * removed.  Leave it alone for now */
-  if (typebuf_changed(tb_change_cnt)) {
-    io_unlock();
-    return 0;
-  }
-
-  if (in_buffer.wpos == in_buffer.rpos && eof) {
-    io_unlock();
-    read_error_exit();
-    return 0;
-  }
-
-  rv = read_from_input_buf(buf, (long)maxlen);
-  io_signal(&data_consumed);
-  io_unlock();
-
-  return rv;
-}
-
-/* FIXME This is a temporary function, used to satisfy the way vim currently
- * reads characters using another input buffer . */
-ssize_t mch_inchar_read(char *buf, size_t count) {
-  size_t rv = 0;
+  lock();
 
   /* Copy at most 'count' to the buffer argument */
   while (in_buffer.rpos < in_buffer.wpos && rv < count)
     buf[rv++] = in_buffer.data[in_buffer.rpos++];
 
+  notify(&input_consumed);
+  unlock();
+
   return rv;
 }
 
-int mch_char_avail() {
-  return in_buffer.rpos < in_buffer.wpos;
-}
+/* Poll the system for user input or a signal. Signals take priority. */
+poll_result_t io_poll(int32_t ms) {
+  lock();
 
-void mch_delay(long ms, int ignoreinput) {
-  int old_tmode;
-
-  uv_mutex_lock(&delay_mutex);
-
-  if (ignoreinput) {
-    /* Go to cooked mode without echo, to allow SIGINT interrupting us
-     * here.  But we don't want QUIT to kill us (CTRL-\ used in a
-     * shell may produce SIGQUIT). */
-    in_mch_delay = TRUE;
-    old_tmode = curr_tmode;
-
-    if (curr_tmode == TMODE_RAW)
-      settmode(TMODE_SLEEP);
-
-    delay(ms);
-
-    settmode(old_tmode);
-    in_mch_delay = FALSE;
-  } else {
-    delay(ms);
+  if (eof && in_buffer.rpos == in_buffer.wpos) {
+    unlock();
+    return POLL_EOF;
   }
 
-  uv_mutex_unlock(&delay_mutex);
+  if (ms == 0) {
+    unlock();
+    return in_buffer.rpos < in_buffer.wpos ? POLL_INPUT : POLL_NONE;
+  }
+
+  if (pending_signal) {
+    unlock();
+    return POLL_SIGNAL;
+  }
+
+  if (ms < 0) {
+    wait(&activity);
+  } else {
+    /* Wait up to 'ms' milliseconds */
+    timedwait(ms, &activity);
+  }
+
+  if (pending_signal) {
+    unlock();
+    return POLL_SIGNAL;
+  }
+
+  if (in_buffer.rpos < in_buffer.wpos) {
+    unlock();
+    return POLL_INPUT;
+  }
+
+  unlock();
+
+  return POLL_NONE;
 }
 
-/*
- * Check for CTRL-C typed by reading all available characters.
- * In cooked mode we should get SIGINT, no need to check.
- */
-void mch_breakcheck() {
-  io_lock();
+int io_consume_signal() {
+  /* FIXME pending_signal must be a queue of signals, right now the event loop
+   * is blocking until this function is called. */
+  int rv;
 
-  if (curr_tmode == TMODE_RAW && mch_char_avail())
-    fill_input_buf(FALSE);
+  lock();
+  notify(&signal_consumed);
+  rv = pending_signal;
+  pending_signal = 0;
+  unlock();
 
-  io_unlock();
+  return rv;
 }
 
-static void io_start(void *arg) {
+static void event_loop(void *arg) {
   sigset_t set;
   uv_loop_t *loop;
   uv_idle_t idler; 
   uv_signal_t sint, shup, squit, sabrt, sterm, swinch;
   uv_stream_t stdin_stream;
 
+  in_buffer.wpos = in_buffer.rpos = in_buffer.apos = 0;
 #ifdef DEBUG
-  memset(&in_buffer, 0, sizeof(in_buffer));
+  memset(&in_buffer.data, 0, BUF_SIZE);
 #endif
 
   /* Block SIGTSTP on this thread */
@@ -309,7 +155,6 @@ static void io_start(void *arg) {
   sigaddset(&set, SIGTSTP);
   pthread_sigmask(SIG_SETMASK, &set, NULL);
 
-  UNUSED(arg);
   loop = uv_loop_new();
   /* Idler for signaling the main thread when the loop is running */
   uv_idle_init(loop, &idler);
@@ -344,55 +189,32 @@ static void io_start(void *arg) {
 /* Signal the main thread that the loop started running */
 static void loop_running(uv_idle_t *handle, int status) {
   uv_idle_stop(handle);
-  io_lock();
+  lock();
   uv_read_start((uv_stream_t *)handle->data, alloc_buffer_cb, read_cb);
-  io_signal(&running);
-  io_unlock();
+  notify(&running);
+  unlock();
 }
 
 static void stop_loop(uv_async_t *handle, int status) {
-  UNUSED(status);
   uv_stop(handle->loop);
 }
 
-/* Called by libuv to allocate memory for reading. This uses a fixed buffer
- * through the entire stream lifetime */
+/* Called by libuv to allocate memory for reading. */
 static void alloc_buffer_cb(uv_handle_t *handle, size_t ssize, uv_buf_t *rv)
 {
-  int move_count;
-  size_t available;
+  uint32_t available;
 
   UNUSED(handle);
+  UNUSED(ssize);
 
-  io_lock();
-
-  available = BUF_SIZE - in_buffer.apos;
-
-  if (!available) {
-    if (in_buffer.rpos == 0) {
-      /* Pause the stream until the main thread consumes some data. The io
-       * mutex should only be unlocked when the stream is stopped in the
-       * read_cb */
-      rv->len = 0;
-      io_unlock();
-      return;
-    }
-    /* 
-     * Out of space in internal buffer, move data to the 'left' as much as
-     * possible.
-     */
-    move_count = in_buffer.apos - in_buffer.rpos;
-    memmove(in_buffer.data, in_buffer.data + in_buffer.rpos, move_count);
-    in_buffer.wpos -= in_buffer.rpos;
-    in_buffer.apos -= in_buffer.rpos;
-    in_buffer.rpos = 0;
-    available = BUF_SIZE - in_buffer.apos;
+  if ((available = BUF_SIZE - in_buffer.apos) == 0) {
+    rv->len = 0;
+    return;
   }
 
   rv->base = (char *)(in_buffer.data + in_buffer.apos);
   rv->len = available;
   in_buffer.apos += available;
-  io_unlock();
 }
 
 /*
@@ -406,155 +228,98 @@ static void alloc_buffer_cb(uv_handle_t *handle, size_t ssize, uv_buf_t *rv)
  *      what was actually written.
  */
 static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf) {
-  UNUSED(buf); /* Data is already on the buffer */
+  uint32_t move_count;
+
+  UNUSED(buf);
+
+  lock();
 
   if (cnt < 0) {
-
     if (cnt == UV_EOF) {
       /* EOF, stop the event loop and signal the main thread. This will cause
        * vim to exit */
-      io_lock();
       if (!eof) {
-        /* Dont close the loop if it was already closed in `mch_exit` */
+        /* Dont close the loop if it was already closed in `io_stop` */
         eof = true;
-        io_signal(&activity);
         uv_stop(stream->loop);
+        notify(&activity);
       }
-      io_unlock();
     } else if (cnt == UV_ENOBUFS) {
-      io_lock();
-      io_wait(&data_consumed);
-      /* Resume reading */
-      io_unlock();
+      while (BUF_SIZE - in_buffer.apos == 0) {
+        if (in_buffer.apos > in_buffer.wpos) {
+          in_buffer.apos = in_buffer.wpos;
+        } else {
+          if (in_buffer.rpos == 0) {
+            /* Pause until the main thread consumes some data. */
+            notify(&activity);
+            wait(&input_consumed);
+          }
+          /* Restore `apos` to `wpos` */
+          /* Move data to the 'left' as much as possible. */
+          move_count = in_buffer.apos - in_buffer.rpos;
+          memmove(in_buffer.data, in_buffer.data + in_buffer.rpos, move_count);
+          in_buffer.apos -= in_buffer.rpos;
+          in_buffer.wpos -= in_buffer.rpos;
+          in_buffer.rpos = 0;
+        } 
+      }
     } else {
       fprintf(stderr, "Unexpected error %ld\n", cnt);
     }
+    unlock();
     return;
   }
 
-  io_lock();
   /* Data was already written, so all we need is to update 'wpos' to reflect
-   * that */
+   * the space actually used in the buffer. */
   in_buffer.wpos += cnt;
-  /* It's very likely that most of the "allocated" space wasn't used, so adjust
-   * `apos` to to `wpos`. FIXME This probably won't work on windows, as it
-   * may call the alloc callback two times before the read callback. Quoting
-   * @saghul(libuv dev):
-   *
-   * "Theoretically alloc_cb calls come right before read_cb, but this could
-   * not be the case on Windows. I have never seen this happen in pyuv (I use a
-   * statically allocated fixed size buffer for everything, but it could be the
-   * Python GIL helping me here). You should be ready to handle alloc_cb,
-   * alloc_cb, read_cb, read_cb."
-   *  */
-  in_buffer.apos = in_buffer.wpos;
+
   if (cnt > 0) {
-    io_signal(&activity);
-  } else {
-    /* cnt == 0 means that libuv requested allocation of a buffer it didn't
-     * use, "deallocate" it now. */
-    in_buffer.apos -= buf->len;
+    notify(&activity);
   }
 
-  /* After setting the read_cmd_fd to O_NONBLOCK, the bytes entered by the user
-   * always have a trailing 0. Without the following 'else', typing
-   * interactively will display 'garbage'(Need to figure out why) */ 
-  io_unlock();
+  unlock();
 }
 
 static void signal_cb(uv_signal_t *handle, int signum) {
-  io_lock();
+  lock();
   pending_signal = signum;
-  io_signal(&activity); /* unblock */
-  io_wait(&signal_consumed);
-  io_unlock();
-}
-
-/*
- * Output a newline when exiting.
- * Make sure the newline goes to the same stream as the text.
- */
-static void exit_scroll() {
-  if (silent_mode)
-    return;
-  if (newline_on_exit || msg_didout) {
-    if (msg_use_printf()) {
-      if (info_message)
-        mch_msg("\n");
-      else
-        mch_errmsg("\r\n");
-    } else
-      out_char('\n');
-  } else   {
-    restore_cterm_colors();             /* get original colors back */
-    msg_clr_eos_force();                /* clear the rest of the display */
-    windgoto((int)Rows - 1, 0);         /* may have moved the cursor */
-  }
-}
-
-/* Helpers for returning special keys from mch_inchar */
-
-static int special_key(char_u *buf, char_u k) {
-  /* If nothing was typed, trigger the event */
-  buf[0] = K_SPECIAL;
-  buf[1] = KS_EXTRA;
-  buf[2] = k;
-  return 3;
-}
-
-static int cursorhold_key(char_u *buf) {
-  return special_key(buf, KE_CURSORHOLD);
-}
-
-static int signal_key(char_u *buf) {
-  return special_key(buf, KE_SIGNAL);
+  notify(&activity); /* unblock */
+  wait(&signal_consumed);
+  unlock();
 }
 
 /* Helpers for dealing with io synchronization */
-static void io_lock() {
-  uv_mutex_lock(&io_mutex);
+static void lock() {
+  uv_mutex_lock(&mutex);
 }
 
-static void io_unlock() {
-  uv_mutex_unlock(&io_mutex);
+static void unlock() {
+  uv_mutex_unlock(&mutex);
 }
 
-static void io_wait(bool *condition) {
-  while (!(*condition)) uv_cond_wait(&io_cond, &io_mutex);
+static void wait(bool *condition) {
+  while (!(*condition)) uv_cond_wait(&cond, &mutex);
   *condition = false;
 }
 
-static void io_timedwait(uint64_t ms, bool *condition) {
+static void timedwait(uint64_t ms, bool *condition) {
   uint64_t hrtime;
+  int64_t ns = ms * 1000000; /* convert to nanoseconds */
 
-  ms *= 1000000; /* convert to nanoseconds */
-
-  while (ms > 0 && !(*condition)) {
+  while (ns > 0 && !(*condition)) {
     hrtime =  uv_hrtime();
-    if (uv_cond_timedwait(&io_cond, &io_mutex, ms) == UV_ETIMEDOUT)
+    if (uv_cond_timedwait(&cond, &mutex, ns) == UV_ETIMEDOUT)
       break;
     /* If we had a spurious wakeup, ensure the next iteration will only sleep
      * for the remaining time */
-    ms -= uv_hrtime() - hrtime;
+    ns -= uv_hrtime() - hrtime;
   }
 
   *condition = false;
 }
 
-static void io_signal(bool *condition) {
+static void notify(bool *condition) {
   *condition = true;
-  uv_cond_signal(&io_cond);
-}
-
-static void delay(uint64_t ms) {
-  uint64_t hrtime;
-
-  ms *= 1000000; /* convert to nanoseconds */
-
-  while (ms > 0) {
-    hrtime =  uv_hrtime();
-    if (uv_cond_timedwait(&delay_cond, &delay_mutex, ms) == UV_ETIMEDOUT)
-      break;
-    ms -= uv_hrtime() - hrtime;
-  }
+  uv_cond_signal(&cond);
 }

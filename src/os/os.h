@@ -3,14 +3,7 @@
 
 #include "vim.h"
 
-void io_init();
 void mch_exit(int);
-int next_signal();
-int mch_inchar(char_u *, int, long, int);
-ssize_t mch_inchar_read(char *buf, size_t count);
-int mch_char_avail(void);
-void mch_delay(long, int);
-void mch_breakcheck(void);
 long_u mch_total_mem(int);
 int mch_chdir(char *);
 int mch_dirname(char_u *buf, int len);
@@ -31,3 +24,4 @@ int mch_setperm(const char_u *name, int perm);
 int os_file_exists(char_u *name);
 
 #endif
+

@@ -31,7 +31,6 @@ void mch_free_acl(vim_acl_T aclent);
 void mch_hide(char_u *name);
 int mch_nodetype(char_u *name);
 void mch_free_mem(void);
-void mch_exit(int r);
 void mch_settmode(int tmode);
 void get_stty(void);
 void mch_setmouse(int on);
