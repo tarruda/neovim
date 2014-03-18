@@ -66,7 +66,7 @@ void mch_breakcheck() {
 /* This is a replacement for the old `WaitForChar` function in os_unix.c */
 static bool buf_poll(int32_t ms) {
   if (input_available())
-    return 1;
+    return true;
 
   return io_poll(ms) == POLL_INPUT;
 }
