@@ -61,36 +61,8 @@ void handle_signal() {
  * a deadlock.
  */
 static void handle_deadly(int sig) {
-  static int entered = 0;           /* count the number of times we got here.
-                                       Note: when memory has been corrupted
-                                       this may get an arbitrary value! */
-  ++entered;
-
   /* Set the v:dying variable. */
-  set_vim_var_nr(VV_DYING, (long)entered);
-
-  /*
-   * If something goes wrong after entering here, we may get here again.
-   * When this happens, give a message and try to exit nicely (resetting the
-   * terminal mode, etc.)
-   * When this happens twice, just exit, don't even try to give a message,
-   * stack may be corrupt or something weird.
-   * When this still happens again (or memory was corrupted in such a way
-   * that "entered" was clobbered) use _exit(), don't try freeing resources.
-   */
-  if (entered >= 3) {
-    /* TODO reset_signals(); */
-    /* TODO may_core_dump(); */
-    if (entered >= 4)
-      _exit(8);
-    exit(7);
-  }
-  if (entered == 2) {
-    /* No translation, it may call malloc(). */
-    OUT_STR("Vim: Double signal, exiting\n");
-    out_flush();
-    getout(1);
-  }
+  set_vim_var_nr(VV_DYING, 1);
 
   sprintf((char *)IObuff, "Vim: Caught deadly signal '%s'\n",
       signal_name(sig));
@@ -99,3 +71,4 @@ static void handle_deadly(int sig) {
    * calling free(). */
   preserve_exit();
 }
+

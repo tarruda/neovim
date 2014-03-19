@@ -16,14 +16,16 @@ static int pending_signal = 0;
 static uv_thread_t thread;
 static uv_mutex_t mutex;
 static uv_cond_t cond;
-static uv_async_t stop_loop_async;
+static uv_async_t stop_loop_async, io_pause_async, io_resume_async;
 static input_buffer_T in_buffer;
 /* Actual conditions behind the cond */
 static bool signal_consumed = false, activity = false,
             input_consumed = false, running = false, eof = false;
 static void event_loop(void *);
 static void loop_running(uv_idle_t *, int);
-static void stop_loop(uv_async_t *, int);
+static void stop_loop_cb(uv_async_t *, int);
+static void io_pause_cb(uv_async_t *, int);
+static void io_resume_cb(uv_async_t *, int);
 static void alloc_cb(uv_handle_t *, size_t, uv_buf_t *);
 static void read_cb(uv_stream_t *, ssize_t, const uv_buf_t *);
 static void signal_cb(uv_signal_t *, int signum);
@@ -109,15 +111,23 @@ poll_result_t io_poll(int32_t ms)
     return POLL_EOF;
   }
 
-  if (ms < 0) {
-    io_wait(&activity);
-  } else if (ms > 0) {
-    /* Wait up to 'ms' milliseconds */
-    io_timedwait(ms, &activity);
-  } else {
+  if (ms == 0) {
     io_unlock();
     return POLL_NONE;
   }
+
+  /* Resume reading */
+  uv_async_send(&io_resume_async);
+
+  if (ms < 0) {
+    io_wait(&activity);
+  } else {
+    /* Wait up to 'ms' milliseconds */
+    io_timedwait(ms, &activity);
+  }
+
+  /* Pause reading */
+  uv_async_send(&io_pause_async);
 
   if (pending_signal) {
     io_unlock();
@@ -159,7 +169,7 @@ static void event_loop(void *arg)
   sigset_t set;
   uv_loop_t *loop;
   uv_idle_t idler; 
-  uv_signal_t sint, shup, squit, sabrt, sterm, swinch;
+  uv_signal_t sint, shup, squit, sterm, swinch;
   uv_pipe_t stdin_stream;
 
   in_buffer.wpos = in_buffer.rpos = in_buffer.apos = 0;
@@ -178,7 +188,12 @@ static void event_loop(void *arg)
   idler.data = &stdin_stream;
   uv_idle_start(&idler, loop_running);
   /* Async watcher used by the main thread to stop the loop */
-  uv_async_init(loop, &stop_loop_async, stop_loop);
+  uv_async_init(loop, &stop_loop_async, stop_loop_cb);
+  /* Async watchers for pausing/resuming */
+  uv_async_init(loop, &io_pause_async, io_pause_cb);
+  uv_async_init(loop, &io_resume_async, io_resume_cb);
+  io_pause_async.data = &stdin_stream;
+  io_resume_async.data = &stdin_stream;
   /* stdin */
   /* FIXME setting fd to non-blocking is only needed on unix */
   fcntl(read_cmd_fd, F_SETFL, fcntl(read_cmd_fd, F_GETFL, 0) | O_NONBLOCK);
@@ -191,8 +206,8 @@ static void event_loop(void *arg)
   uv_signal_start(&shup, signal_cb, SIGHUP);
   uv_signal_init(loop, &squit);
   uv_signal_start(&squit, signal_cb, SIGQUIT);
-  uv_signal_init(loop, &sabrt);
-  uv_signal_start(&sabrt, signal_cb, SIGABRT);
+  // uv_signal_init(loop, &sabrt);
+  // uv_signal_start(&sabrt, signal_cb, SIGABRT);
   uv_signal_init(loop, &sterm);
   uv_signal_start(&sterm, signal_cb, SIGTERM);
   uv_signal_init(loop, &swinch);
@@ -208,14 +223,23 @@ static void loop_running(uv_idle_t *handle, int status)
 {
   uv_idle_stop(handle);
   io_lock();
-  uv_read_start((uv_stream_t *)handle->data, alloc_cb, read_cb);
   io_notify(&running);
   io_unlock();
 }
 
-static void stop_loop(uv_async_t *handle, int status)
+static void stop_loop_cb(uv_async_t *handle, int status)
 {
   uv_stop(handle->loop);
+}
+
+static void io_pause_cb(uv_async_t *handle, int status)
+{
+  uv_read_stop((uv_stream_t *)handle->data);
+}
+
+static void io_resume_cb(uv_async_t *handle, int status)
+{
+  uv_read_start((uv_stream_t *)handle->data, alloc_cb, read_cb);
 }
 
 /* Called by libuv to allocate memory for reading. */
