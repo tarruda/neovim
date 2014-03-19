@@ -39,6 +39,7 @@ void handle_signal() {
       got_int = TRUE;
       break;
     case SIGWINCH:
+      exit(55);
       shell_resized();
       break;
     case SIGTERM:
