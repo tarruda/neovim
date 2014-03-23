@@ -144,8 +144,6 @@ static volatile int deadly_signal = 0;      /* The signal we caught */
 /* volatile because it is used in signal handler deathtrap(). */
 static volatile int in_mch_delay = FALSE;    /* sleeping in mch_delay() */
 
-static int curr_tmode = TMODE_COOK;     /* contains current terminal mode */
-
 
 #ifdef SYS_SIGLIST_DECLARED
 /*
@@ -248,97 +246,10 @@ void mch_write(char_u *s, int len)
     RealWaitForChar(read_cmd_fd, p_wd, NULL);
 }
 
-/*
- * mch_inchar(): low level input function.
- * Get a characters from the keyboard.
- * Return the number of characters that are available.
- * If wtime == 0 do not wait for characters.
- * If wtime == n wait a short time for characters.
- * If wtime == -1 wait forever for characters.
- */
-int mch_inchar(
-        char_u      *buf,
-        int maxlen,
-        long wtime,                 /* don't use "time", MIPS cannot handle it */
-        int tb_change_cnt
-        )
-{
-    int len;
-
-
-    /* Check if window changed size while we were busy, perhaps the ":set
-     * columns=99" command was used. */
-    while (do_resize)
-        handle_resize();
-
-    if (wtime >= 0) {
-        while (WaitForChar(wtime) == 0) {           /* no character available */
-            if (!do_resize)           /* return if not interrupted by resize */
-                return 0;
-            handle_resize();
-        }
-    } else {    /* wtime == -1 */
-        /*
-         * If there is no character available within 'updatetime' seconds
-         * flush all the swap files to disk.
-         * Also done when interrupted by SIGWINCH.
-         */
-        if (WaitForChar(p_ut) == 0) {
-            if (trigger_cursorhold() && maxlen >= 3
-                    && !typebuf_changed(tb_change_cnt)) {
-                buf[0] = K_SPECIAL;
-                buf[1] = KS_EXTRA;
-                buf[2] = (int)KE_CURSORHOLD;
-                return 3;
-            }
-            before_blocking();
-        }
-    }
-
-    for (;; ) {   /* repeat until we got a character */
-        while (do_resize)        /* window changed size */
-            handle_resize();
-
-        /*
-         * We want to be interrupted by the winch signal
-         * or by an event on the monitored file descriptors.
-         */
-        if (WaitForChar(-1L) == 0) {
-            if (do_resize)                /* interrupted by SIGWINCH signal */
-                handle_resize();
-            return 0;
-        }
-
-        /* If input was put directly in typeahead buffer bail out here. */
-        if (typebuf_changed(tb_change_cnt))
-            return 0;
-
-        /*
-         * For some terminals we only get one character at a time.
-         * We want the get all available characters, so we could keep on
-         * trying until none is available
-         * For some other terminals this is quite slow, that's why we don't do
-         * it.
-         */
-        len = read_from_input_buf(buf, (long)maxlen);
-        if (len > 0) {
-            return len;
-        }
-    }
-}
-
 static void handle_resize()
 {
   do_resize = FALSE;
   shell_resized();
-}
-
-/*
- * return non-zero if a character is available
- */
-int mch_char_avail()
-{
-  return WaitForChar(0L);
 }
 
 void mch_delay(long msec, int ignoreinput)
@@ -2514,16 +2425,6 @@ error:
   vim_free(newcmd);
 
   return retval;
-}
-
-/*
- * Check for CTRL-C typed by reading all available characters.
- * In cooked mode we should get SIGINT, no need to check.
- */
-void mch_breakcheck()
-{
-  if (curr_tmode == TMODE_RAW && RealWaitForChar(read_cmd_fd, 0L, NULL))
-    fill_input_buf(FALSE);
 }
 
 /*
