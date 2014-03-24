@@ -196,9 +196,8 @@ static void initialize_event_loop()
 #endif
 
   if ((read_stream_type = uv_guess_handle(read_cmd_fd)) != UV_FILE) {
-    read_stream = (uv_stream_t *)malloc(sizeof(uv_pipe_t));
-    uv_pipe_init(uv_default_loop(), (uv_pipe_t *)read_stream, 0);
-    uv_pipe_open((uv_pipe_t *)read_stream, read_cmd_fd);
+    read_stream = (uv_stream_t *)malloc(sizeof(uv_tty_t));
+    uv_tty_init(uv_default_loop(), (uv_tty_t *)read_stream, read_cmd_fd, 1);
   }
 
   uv_timer_init(uv_default_loop(), &timer_req);
