@@ -511,7 +511,8 @@ void fill_input_buf(int exit_on_error)
 
   len = 0;      /* to avoid gcc warning */
   for (try = 0; try < 100; ++try) {
-    len = io_read((char *)inbuf + inbufcount,
+    len = io_read(
+        (char *)inbuf + inbufcount,
         (size_t)((INBUFLEN - inbufcount) / input_conv.vc_factor));
 
     if (len > 0 || got_int)
