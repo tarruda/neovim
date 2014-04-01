@@ -30,6 +30,13 @@ char ** shell_build_argv(char_u *cmd, char_u *extra_shell_arg);
 ///
 /// @param argv The argument vector.
 void shell_free_argv(char **argv);
-
+/// Calls the user shell for running a command, interactive session or
+/// wildcard expansion. It uses the shell set in the `sh` option.
+///
+/// @param cmd The command to be executed. If NULL it will run an interactive
+///        shell
+/// @param opts Various options that control how the shell will work
+/// @param extra_shell_arg Extra argument to be passed to the shell
+int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg);
 #endif  // NEOVIM_OS_SHELL_H
 
