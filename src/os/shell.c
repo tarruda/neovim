@@ -10,8 +10,14 @@
 #include "ascii.h"
 #include "term.h"
 #include "misc2.h"
+#include "memline.h"
 #include "option_defs.h"
 #include "charset.h"
+
+typedef struct {
+  uint32_t lnum;
+  uv_stream_t *shell_stdin;
+} ShellWriteData;
 
 /// Parses a command string into a sequence of words, taking quotes into
 /// consideration.
@@ -21,11 +27,22 @@
 ///        words. It can be NULL if the caller only needs to count words.
 /// @return The number of words parsed.
 static int tokenize(char_u *str, char **argv);
+
 /// Calculates the length of a shell word.
 ///
 /// @param str A pointer to the first character of the word
 /// @return The offset from `str` at which the word ends.
 static int word_length(char_u *command);
+
+static void write_line_to_child(uv_write_t *req);
+
+static int proc_cleanup_exit(int r, int mode, uv_process_options_t *opts);
+
+// Callbacks for libuv
+static void alloc_cb(uv_handle_t *handle, size_t suggested, uv_buf_t *buf);
+static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf);
+static void write_cb(uv_write_t *req, int status);
+static void exit_cb(uv_process_t *proc, int64_t status, int term_signal);
 
 char ** shell_build_argv(char_u *cmd, char_u *extra_shell_opt)
 {
@@ -78,8 +95,13 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
   uv_process_options_t proc_opts;
   uv_process_t proc;
   uv_pipe_t proc_stdin, proc_stdout;
-  int status;
-  int tmode = cur_tmode;
+  uv_write_t write_req;
+  int status, old_state, tmode = cur_tmode;
+  bool exited = false;
+  ShellWriteData write_data = {
+    .lnum = 0,
+    .shell_stdin = (uv_stream_t *)&proc_stdin
+  };
 
   out_flush();
   if (opts & kShellOptCooked) {
@@ -87,12 +109,14 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
     settmode(TMODE_COOK);
   }
 
+  proc.data = &exited;
   // While the child is running, ignore terminating signals
-  signal_reject_deadly();
+  // TODO
 
   // Create argv for `uv_spawn`
   proc_opts.args = shell_build_argv(cmd, extra_shell_arg);
-
+  proc_opts.file = proc_opts.args[0];
+  proc_opts.exit_cb = exit_cb;
   // Initialize libuv structures 
   proc_opts.stdio = proc_stdio;
   proc_opts.stdio_count = 3;
@@ -111,10 +135,14 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
     proc_stdio[1].flags = UV_IGNORE;
     proc_stdio[2].flags = UV_IGNORE;
   } else {
+    old_state = State;
+    State = EXTERNCMD;
 
     if (opts & kShellOptWrite) {
-      uv_pipe_init(uv_default_loop(), &proc_stdin, 0);
       // Write from the current buffer into the process stdin
+      uv_pipe_init(uv_default_loop(), &proc_stdin, 0);
+      // Save state necessary for the write-related functions
+      write_req.data = &write_data;
       proc_stdio[0].flags = UV_CREATE_PIPE | UV_READABLE_PIPE;
       proc_stdio[0].data.stream = (uv_stream_t *)&proc_stdin;
     }
@@ -129,22 +157,24 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
 
   status = uv_spawn(uv_default_loop(), &proc, &proc_opts);
 
-  if (!status) {
-    // run the event loop until the shell exits
-
-  } else {
+  if (status) {
     // TODO Log error
+    return proc_cleanup_exit(status, tmode, &proc_opts);
   }
 
-  if (tmode == TMODE_RAW) {
-    // restore mode
-    settmode(TMODE_RAW);
+  if (opts & kShellOptWrite) {
+    write_line_to_child(&write_req);
   }
 
-  // Release acquired memory
-  shell_free_argv(proc_opts.args);
+  if (opts & kShellOptRead) {
+    uv_read_start((uv_stream_t *)&proc_stdout, alloc_cb, read_cb);
+  }
 
-  return status;
+  while (!exited) {
+    uv_run(uv_default_loop(), UV_RUN_ONCE);
+  }
+
+  return proc_cleanup_exit(status, tmode, &proc_opts);
 }
 
 static int tokenize(char_u *str, char **argv)
@@ -189,4 +219,83 @@ static int word_length(char_u *str)
   }
 
   return length;
+}
+
+static void write_line_to_child(uv_write_t *req)
+{
+  char_u *line_ptr;
+  size_t line_len;
+  uv_buf_t bufs[] = {
+    {.base = NULL, .len = 0},
+    {.base = "\n", .len = 1}
+  };
+  uint32_t nbufs = 1;
+  ShellWriteData *data = (ShellWriteData *)req->data;
+
+  if (!data->lnum) {
+    // Get the first line number that must be written to the child
+    data->lnum = curbuf->b_op_start.lnum;
+  }
+ 
+  // pointer to the line
+  line_ptr = ml_get(data->lnum);
+  // line length
+  line_len = strlen((char *)line_ptr);
+  // prepare the buffer
+  bufs[0].base = (char *)line_ptr;
+  bufs[0].len = line_len;
+  // Append a NL if this line should have one
+  if (data->lnum != curbuf->b_op_end.lnum
+      || !curbuf->b_p_bin
+      || (data->lnum != curbuf->b_no_eol_lnum
+        && (data->lnum !=
+          curbuf->b_ml.ml_line_count
+          || curbuf->b_p_eol))) {
+    nbufs++;
+  }
+
+  uv_write(req, data->shell_stdin, bufs, nbufs, write_cb);
+}
+
+static void alloc_cb(uv_handle_t *handle, size_t suggested, uv_buf_t *buf)
+{
+}
+
+static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf)
+{
+
+}
+
+static void write_cb(uv_write_t *req, int status)
+{
+  ShellWriteData *data = (ShellWriteData *)req->data;
+  data->lnum++;
+
+  if (data->lnum > curbuf->b_op_end.lnum) {
+    // finished all the lines, close the stream
+    uv_close((uv_handle_t *)req, NULL);
+    uv_close((uv_handle_t *)data->shell_stdin, NULL);
+    return;
+  }
+
+  // Write next line
+  write_line_to_child(req);
+}
+
+static int proc_cleanup_exit(int r, int mode, uv_process_options_t *opts)
+{
+  shell_free_argv(opts->args);
+
+  if (mode == TMODE_RAW) {
+    // restore mode
+    settmode(TMODE_RAW);
+  }
+
+  return r;
+}
+
+static void exit_cb(uv_process_t *proc, int64_t status, int term_signal)
+{
+  *(bool *)proc->data = true;
+
 }
