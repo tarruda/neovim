@@ -127,7 +127,6 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
     settmode(TMODE_COOK);
   }
 
-  proc.data = &exited;
   // While the child is running, ignore terminating signals
   // TODO
 
@@ -179,6 +178,8 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
   }
 
   status = uv_spawn(uv_default_loop(), &proc, &proc_opts);
+  // Assign the flag address after `proc` is initialized by `uv_spawn`
+  proc.data = &exited;
 
   if (status) {
     // TODO Log error
