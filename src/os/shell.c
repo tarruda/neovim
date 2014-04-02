@@ -7,6 +7,7 @@
 #include "os/signal.h"
 #include "types.h"
 #include "vim.h"
+#include "message.h"
 #include "ascii.h"
 #include "term.h"
 #include "misc2.h"
@@ -16,6 +17,13 @@
 #include "charset.h"
 
 #define READ_BUFFER_LENGTH 100
+
+typedef struct {
+  int old_state;
+  int old_mode;
+  int exit_status;
+  bool exited;
+} ProcessData;
 
 typedef struct {
   uint32_t lnum;
@@ -46,11 +54,9 @@ static int word_length(char_u *command);
 
 static void write_line_to_child(uv_write_t *req);
 
-static int proc_cleanup_exit(int result,
-                             int old_state,
-                             int mode,
-                             uv_process_options_t *opts);
-
+static int proc_cleanup_exit(ProcessData *data,
+                             uv_process_options_t *opts,
+                             int shellopts);
 // Callbacks for libuv
 static void alloc_cb(uv_handle_t *handle, size_t suggested, uv_buf_t *buf);
 static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf);
@@ -109,8 +115,11 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
   uv_process_t proc;
   uv_pipe_t proc_stdin, proc_stdout;
   uv_write_t write_req;
-  int status, old_state, tmode = cur_tmode;
-  bool exited = false;
+  ProcessData proc_data = {
+    .exited = false,
+    .old_mode = cur_tmode,
+    .old_state = State
+  };
   ShellWriteData write_data = {
     .lnum = 0,
     .shell_stdin = (uv_stream_t *)&proc_stdin,
@@ -128,7 +137,7 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
   }
 
   // While the child is running, ignore terminating signals
-  // TODO
+  signal_reject_deadly();
 
   // Create argv for `uv_spawn`
   proc_opts.args = shell_build_argv(cmd, extra_shell_arg);
@@ -156,7 +165,6 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
     proc_stdio[1].flags = UV_IGNORE;
     proc_stdio[2].flags = UV_IGNORE;
   } else {
-    old_state = State;
     State = EXTERNCMD;
 
     if (opts & kShellOptWrite) {
@@ -177,14 +185,18 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
     }
   }
 
-  status = uv_spawn(uv_default_loop(), &proc, &proc_opts);
-  // Assign the flag address after `proc` is initialized by `uv_spawn`
-  proc.data = &exited;
+  if (uv_spawn(uv_default_loop(), &proc, &proc_opts)) {
+    if (!emsg_silent) {
+      MSG_PUTS(_("\nCannot execute shell "));
+      msg_outtrans(p_sh);
+      msg_putchar('\n');
+    }
 
-  if (status) {
-    // TODO Log error
-    return proc_cleanup_exit(status, old_state, tmode, &proc_opts);
+    return proc_cleanup_exit(&proc_data, &proc_opts, opts);
   }
+
+  // Assign the flag address after `proc` is initialized by `uv_spawn`
+  proc.data = &proc_data;
 
   if (opts & kShellOptWrite) {
     write_line_to_child(&write_req);
@@ -194,11 +206,11 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
     uv_read_start((uv_stream_t *)&proc_stdout, alloc_cb, read_cb);
   }
 
-  while (!exited) {
+  while (!proc_data.exited) {
     uv_run(uv_default_loop(), UV_RUN_ONCE);
   }
 
-  return proc_cleanup_exit(status, old_state, tmode, &proc_opts);
+  return proc_cleanup_exit(&proc_data, &proc_opts, opts);
 }
 
 static int tokenize(char_u *str, char **argv)
@@ -339,24 +351,40 @@ static void write_cb(uv_write_t *req, int status)
   write_line_to_child(req);
 }
 
-static int proc_cleanup_exit(int result,
-                             int old_state,
-                             int mode,
-                             uv_process_options_t *opts)
+static int proc_cleanup_exit(ProcessData *proc_data,
+                             uv_process_options_t *proc_opts,
+                             int shellopts)
 {
-  shell_free_argv(opts->args);
 
-  if (mode == TMODE_RAW) {
+  if (proc_data->exited) {
+    if (!emsg_silent && proc_data->exit_status != 0 &&
+        !(shellopts & kShellOptSilent)) {
+      MSG_PUTS(_("\nshell returned "));
+      msg_outnum((long)proc_data->exit_status);
+      msg_putchar('\n');
+    } else {
+      MSG_PUTS(_("\nCommand terminated\n"));
+    }
+  }
+
+  State = proc_data->old_state;
+
+  if (proc_data->old_mode == TMODE_RAW) {
     // restore mode
     settmode(TMODE_RAW);
   }
 
-  State = old_state;
+  signal_accept_deadly();
 
-  return result;
+  // Release argv memory
+  shell_free_argv(proc_opts->args);
+
+  return proc_data->exit_status;
 }
 
 static void exit_cb(uv_process_t *proc, int64_t status, int term_signal)
 {
-  *(bool *)proc->data = true;
+  ProcessData *data = (ProcessData *)proc->data;
+  data->exited = true;
+  data->exit_status = status;
 }
