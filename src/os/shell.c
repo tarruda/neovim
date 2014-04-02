@@ -22,19 +22,21 @@ typedef struct {
   int old_state;
   int old_mode;
   int exit_status;
-  bool exited;
+  int exited;
 } ProcessData;
 
 typedef struct {
   uint32_t lnum;
   uv_stream_t *shell_stdin;
   uv_buf_t bufs[2];
+  ProcessData *proc_data;
 } ShellWriteData;
 
 typedef struct {
   garray_T ga;
   char readbuf[READ_BUFFER_LENGTH];
   bool reading;
+  ProcessData *proc_data;
 } ShellReadData;
 
 /// Parses a command string into a sequence of words, taking quotes into
@@ -115,6 +117,7 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
   uv_process_t proc;
   uv_pipe_t proc_stdin, proc_stdout;
   uv_write_t write_req;
+  int expected_exits = 1;
   ProcessData proc_data = {
     .exited = false,
     .old_mode = cur_tmode,
@@ -126,9 +129,13 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
     .bufs  = {
       {.base = NULL, .len = 0},
       {.base = "\n", .len = 1}
-    }
+    },
+    .proc_data = &proc_data
   };
-  ShellReadData read_data = {.reading = false};
+  ShellReadData read_data = {
+    .reading = false,
+    .proc_data = &proc_data
+  };
 
   out_flush();
   if (opts & kShellOptCooked) {
@@ -200,13 +207,15 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
 
   if (opts & kShellOptWrite) {
     write_line_to_child(&write_req);
+    expected_exits++;
   }
 
   if (opts & kShellOptRead) {
     uv_read_start((uv_stream_t *)&proc_stdout, alloc_cb, read_cb);
+    expected_exits++;
   }
 
-  while (!proc_data.exited) {
+  while (proc_data.exited < expected_exits) {
     uv_run(uv_default_loop(), UV_RUN_ONCE);
 
     if (got_int) {
@@ -327,6 +336,7 @@ static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf)
     if (cnt != UV_ENOBUFS) {
       uv_read_stop(stream);
       uv_close((uv_handle_t *)stream, NULL);
+      data->proc_data->exited++;
     }
     return;
   }
@@ -359,6 +369,7 @@ static void write_cb(uv_write_t *req, int status)
   if (data->lnum > curbuf->b_op_end.lnum) {
     // finished all the lines, close the stream
     uv_close((uv_handle_t *)data->shell_stdin, NULL);
+    data->proc_data->exited++;
     return;
   }
 
@@ -398,6 +409,6 @@ static int proc_cleanup_exit(ProcessData *proc_data,
 static void exit_cb(uv_process_t *proc, int64_t status, int term_signal)
 {
   ProcessData *data = (ProcessData *)proc->data;
-  data->exited = true;
+  data->exited++;
   data->exit_status = status;
 }
