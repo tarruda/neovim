@@ -208,6 +208,21 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
 
   while (!proc_data.exited) {
     uv_run(uv_default_loop(), UV_RUN_ONCE);
+
+    if (got_int) {
+      uv_process_kill(&proc, SIGINT);
+      got_int = FALSE;
+    }
+  }
+
+  if (opts & kShellOptRead) {
+    if (read_data.ga.ga_len > 0) {
+      append_ga_line(&read_data.ga);
+      /* remember that the NL was missing */
+      curbuf->b_no_eol_lnum = curwin->w_cursor.lnum;
+    } else
+      curbuf->b_no_eol_lnum = 0;
+    ga_clear(&read_data.ga);
   }
 
   return proc_cleanup_exit(&proc_data, &proc_opts, opts);
@@ -362,8 +377,6 @@ static int proc_cleanup_exit(ProcessData *proc_data,
       MSG_PUTS(_("\nshell returned "));
       msg_outnum((long)proc_data->exit_status);
       msg_putchar('\n');
-    } else {
-      MSG_PUTS(_("\nCommand terminated\n"));
     }
   }
 
