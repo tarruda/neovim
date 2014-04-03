@@ -29,8 +29,8 @@ typedef struct {
 typedef struct {
   uint32_t lnum;
   uv_stream_t *shell_stdin;
-  uv_buf_t bufs[2];
   ProcessData *proc_data;
+  char *buffer;
 } ShellWriteData;
 
 typedef struct {
@@ -127,10 +127,6 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
   ShellWriteData write_data = {
     .lnum = 0,
     .shell_stdin = (uv_stream_t *)&proc_stdin,
-    .bufs  = {
-      {.base = NULL, .len = 0},
-      {.base = "\n", .len = 1}
-    },
     .proc_data = &proc_data
   };
   ShellReadData read_data = {
@@ -235,6 +231,8 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
     ga_clear(&read_data.ga);
   }
 
+  free(write_data.buffer);
+
   return proc_cleanup_exit(&proc_data, &proc_opts, opts);
 }
 
@@ -287,7 +285,9 @@ static void write_selection(uv_write_t *req)
   ShellWriteData *data = (ShellWriteData *)req->data;
   // TODO use a static buffer for up to a limit(eg 4096 bytes) and only
   // after that allocate memory
-  char *buf = (char *)xmalloc(0xffff);
+  int buflen = 4096;
+  data->buffer = (char *)xmalloc(buflen);
+  uv_buf_t uvbuf;
   linenr_T lnum = curbuf->b_op_start.lnum;
   int off = 0;
   int written = 0;
@@ -301,12 +301,20 @@ static void write_selection(uv_write_t *req)
       len = 0;
     } else if (lp[written] == NL) {
       /* NL -> NUL translation */
-      buf[off++] = NUL;
       len = 1;
+      if (off + len >= buflen) {
+        buflen *= 2;
+        data->buffer = xrealloc(data->buffer, buflen);
+      }
+      data->buffer[off++] = NUL;
     } else {
       char_u  *s = vim_strchr(lp + written, NL);
       len = s == NULL ? l : s - (lp + written);
-      memcpy(buf + off, lp + written, len);
+      while (off + len >= buflen) {
+        buflen *= 2;
+        data->buffer = xrealloc(data->buffer, buflen);
+      }
+      memcpy(data->buffer + off, lp + written, len);
       off += len;
     }
     if (len == l) {
@@ -318,7 +326,11 @@ static void write_selection(uv_write_t *req)
             && (lnum !=
               curbuf->b_ml.ml_line_count
               || curbuf->b_p_eol))) {
-        buf[off++] = NL;
+        if (off + 1 >= buflen) {
+          buflen *= 2;
+          data->buffer = xrealloc(data->buffer, buflen);
+        }
+        data->buffer[off++] = NL;
       }
       ++lnum;
       if (lnum > curbuf->b_op_end.lnum) {
@@ -330,10 +342,10 @@ static void write_selection(uv_write_t *req)
       written += len;
   }
 
-  data->bufs[0].base = buf;
-  data->bufs[0].len = off;
+  uvbuf.base = data->buffer;
+  uvbuf.len = off;
 
-  uv_write(req, data->shell_stdin, data->bufs, 1, write_cb);
+  uv_write(req, data->shell_stdin, &uvbuf, 1, write_cb);
 }
 
 static void alloc_cb(uv_handle_t *handle, size_t suggested, uv_buf_t *buf)
