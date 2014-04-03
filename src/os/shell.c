@@ -1,5 +1,6 @@
 #include <string.h>
 #include <stdbool.h>
+#include <stdlib.h>
 
 #include <uv.h>
 
@@ -54,7 +55,7 @@ static int tokenize(char_u *str, char **argv);
 /// @return The offset from `str` at which the word ends.
 static int word_length(char_u *command);
 
-static void write_line_to_child(uv_write_t *req);
+static void write_selection(uv_write_t *req);
 
 static int proc_cleanup_exit(ProcessData *data,
                              uv_process_options_t *opts,
@@ -206,7 +207,7 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
   proc.data = &proc_data;
 
   if (opts & kShellOptWrite) {
-    write_line_to_child(&write_req);
+    write_selection(&write_req);
     expected_exits++;
   }
 
@@ -281,36 +282,58 @@ static int word_length(char_u *str)
   return length;
 }
 
-static void write_line_to_child(uv_write_t *req)
+static void write_selection(uv_write_t *req)
 {
-  char_u *line_ptr;
-  size_t line_len;
-  uint32_t nbufs = 1;
   ShellWriteData *data = (ShellWriteData *)req->data;
+  // TODO use a static buffer for up to a limit(eg 4096 bytes) and only
+  // after that allocate memory
+  char *buf = (char *)xmalloc(0xffff);
+  linenr_T lnum = curbuf->b_op_start.lnum;
+  int off = 0;
+  int written = 0;
+  char_u      *lp = ml_get(lnum);
+  int l;
+  int len;
 
-  if (!data->lnum) {
-    // Get the first line number that must be written to the child
-    data->lnum = curbuf->b_op_start.lnum;
-  }
- 
-  // pointer to the line
-  line_ptr = ml_get(data->lnum);
-  // line length
-  line_len = strlen((char *)line_ptr);
-  // prepare the buffer
-  data->bufs[0].base = (char *)line_ptr;
-  data->bufs[0].len = line_len;
-  // Append a NL if this line should have one
-  if (data->lnum != curbuf->b_op_end.lnum
-      || !curbuf->b_p_bin
-      || (data->lnum != curbuf->b_no_eol_lnum
-        && (data->lnum !=
-          curbuf->b_ml.ml_line_count
-          || curbuf->b_p_eol))) {
-    nbufs++;
+  for (;; ) {
+    l = STRLEN(lp + written);
+    if (l == 0) {
+      len = 0;
+    } else if (lp[written] == NL) {
+      /* NL -> NUL translation */
+      buf[off++] = NUL;
+      len = 1;
+    } else {
+      char_u  *s = vim_strchr(lp + written, NL);
+      len = s == NULL ? l : s - (lp + written);
+      memcpy(buf + off, lp + written, len);
+      off += len;
+    }
+    if (len == l) {
+      /* Finished a line, add a NL, unless this line
+       * should not have one. */
+      if (lnum != curbuf->b_op_end.lnum
+          || !curbuf->b_p_bin
+          || (lnum != curbuf->b_no_eol_lnum
+            && (lnum !=
+              curbuf->b_ml.ml_line_count
+              || curbuf->b_p_eol))) {
+        buf[off++] = NL;
+      }
+      ++lnum;
+      if (lnum > curbuf->b_op_end.lnum) {
+        break;
+      }
+      lp = ml_get(lnum);
+      written = 0;
+    } else if (len > 0)
+      written += len;
   }
 
-  uv_write(req, data->shell_stdin, data->bufs, nbufs, write_cb);
+  data->bufs[0].base = buf;
+  data->bufs[0].len = off;
+
+  uv_write(req, data->shell_stdin, data->bufs, 1, write_cb);
 }
 
 static void alloc_cb(uv_handle_t *handle, size_t suggested, uv_buf_t *buf)
@@ -364,17 +387,8 @@ static void read_cb(uv_stream_t *stream, ssize_t cnt, const uv_buf_t *buf)
 static void write_cb(uv_write_t *req, int status)
 {
   ShellWriteData *data = (ShellWriteData *)req->data;
-  data->lnum++;
-
-  if (data->lnum > curbuf->b_op_end.lnum) {
-    // finished all the lines, close the stream
-    uv_close((uv_handle_t *)data->shell_stdin, NULL);
-    data->proc_data->exited++;
-    return;
-  }
-
-  // Write next line
-  write_line_to_child(req);
+  uv_close((uv_handle_t *)data->shell_stdin, NULL);
+  data->proc_data->exited++;
 }
 
 static int proc_cleanup_exit(ProcessData *proc_data,
