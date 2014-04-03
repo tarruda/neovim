@@ -120,7 +120,7 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
   uv_write_t write_req;
   int expected_exits = 1;
   ProcessData proc_data = {
-    .exited = false,
+    .exited = 0,
     .old_mode = cur_tmode,
     .old_state = State
   };
