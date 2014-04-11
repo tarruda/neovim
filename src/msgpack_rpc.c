@@ -8,20 +8,37 @@
 bool msgpack_rpc_call(msgpack_object *req, msgpack_packer *res)
 {
   // Validate the basic structure of the msgpack-rpc payload
-  if (req->type != MSGPACK_OBJECT_ARRAY
-      // Must be an array of size 4
-      || req->via.array.size != 4
-      // First item is the message type, it must be 0 which represents
-      // a request
-      || req->via.array.ptr[0].type != MSGPACK_OBJECT_POSITIVE_INTEGER
-      || req->via.array.ptr[0].via.u64 != 0
-      // Second item is the request id, it must be a positive integer
-      || req->via.array.ptr[1].type != MSGPACK_OBJECT_POSITIVE_INTEGER
-      // Third item is the API function id, also a positive integer
-      || req->via.array.ptr[2].type != MSGPACK_OBJECT_POSITIVE_INTEGER
-      // Last item is the function parameters, it must be an array
-      || req->via.array.ptr[3].type != MSGPACK_OBJECT_ARRAY) {
-    return msgpack_rpc_error(req, res, "Invalid msgpack-rpc request");
+  if (req->type != MSGPACK_OBJECT_ARRAY) {
+    return msgpack_rpc_error(req, res, "Request is not an array");
+  }
+
+  if (req->via.array.size != 4) {
+    char error_msg[256];
+    snprintf(error_msg,
+             sizeof(error_msg),
+             "Request array size is %u, it should be 4",
+             req->via.array.size);
+    return msgpack_rpc_error(req, res, error_msg);
+  }
+
+  if (req->via.array.ptr[0].type != MSGPACK_OBJECT_POSITIVE_INTEGER) {
+    return msgpack_rpc_error(req, res, "Message type must be an integer");
+  }
+
+  if (req->via.array.ptr[0].via.u64 != 0) {
+    return msgpack_rpc_error(req, res, "Message type must be 0");
+  }
+
+  if (req->via.array.ptr[1].type != MSGPACK_OBJECT_POSITIVE_INTEGER) {
+    return msgpack_rpc_error(req, res, "Id must be a positive integer");
+  }
+
+  if (req->via.array.ptr[2].type != MSGPACK_OBJECT_POSITIVE_INTEGER) {
+    return msgpack_rpc_error(req, res, "Method id must be a positive integer");
+  }
+
+  if (req->via.array.ptr[3].type != MSGPACK_OBJECT_ARRAY) {
+    return msgpack_rpc_error(req, res, "Paremeters must be an array");
   }
 
   // dispatch the message
@@ -58,10 +75,10 @@ bool msgpack_rpc_error(msgpack_object *req, msgpack_packer *res, char *msg)
   return false;
 }
 
-char ** msgpack_rpc_array_argument(msgpack_object *obj)
+char **msgpack_rpc_array_argument(msgpack_object *obj)
 {
   uint32_t i;
-  char **rv = xmalloc(obj->via.array.size);
+  char **rv = xmalloc(obj->via.array.size + 1);
 
   for (i = 0; i < obj->via.array.size; i++) {
     rv[i] = msgpack_rpc_raw_argument(obj->via.array.ptr + i);
@@ -72,7 +89,7 @@ char ** msgpack_rpc_array_argument(msgpack_object *obj)
   return rv;
 }
 
-char * msgpack_rpc_raw_argument(msgpack_object *obj)
+char *msgpack_rpc_raw_argument(msgpack_object *obj)
 {
   char *rv = xmalloc(obj->via.raw.size + 1);
   memcpy(rv, obj->via.raw.ptr, obj->via.raw.size);
@@ -87,23 +104,23 @@ uint32_t msgpack_rpc_integer_argument(msgpack_object *obj)
 }
 
 bool msgpack_rpc_array_result(char **result,
-                             msgpack_object *req,
-                             msgpack_packer *res)
+                              msgpack_object *req,
+                              msgpack_packer *res)
 {
-  uint32_t array_size = 0;
   char **ptr;
+  uint32_t array_size;
 
   // Count number of items in the array
-  for (ptr = result; *ptr != NULL; ptr++) {
-    array_size++;
-  }
+  for (ptr = result; *ptr != NULL; ptr++) continue;
 
   msgpack_rpc_success(req, res);
+  // Subtract 1 to exclude the NULL slot
+  array_size = ptr - result - 1;
   msgpack_pack_array(res, array_size);
 
-  // push each string to the awway
-  for (uint32_t i = 0; i < array_size; i++) {
-    uint32_t raw_size = strlen(*ptr);
+  // push each string to the array
+  for (ptr = result; *ptr != NULL; ptr++) {
+    size_t raw_size = strlen(*ptr);
     msgpack_pack_raw(res, raw_size);
     msgpack_pack_raw_body(res, *ptr, raw_size);
   }
@@ -112,10 +129,10 @@ bool msgpack_rpc_array_result(char **result,
 }
 
 bool msgpack_rpc_raw_result(char *result,
-                             msgpack_object *req,
-                             msgpack_packer *res)
+                            msgpack_object *req,
+                            msgpack_packer *res)
 {
-  uint32_t raw_size = strlen(result);
+  size_t raw_size = strlen(result);
   msgpack_rpc_success(req, res);
   msgpack_pack_raw(res, raw_size);
   msgpack_pack_raw_body(res, result, raw_size);
@@ -123,8 +140,8 @@ bool msgpack_rpc_raw_result(char *result,
 }
 
 bool msgpack_rpc_integer_result(uint32_t result,
-                             msgpack_object *req,
-                             msgpack_packer *res)
+                                msgpack_object *req,
+                                msgpack_packer *res)
 {
   msgpack_rpc_success(req, res);
   msgpack_pack_int(res, result);
