@@ -127,6 +127,15 @@ char *xstpcpy(char *restrict dst, const char *restrict src);
 /// @param maxlen
 char *xstpncpy(char *restrict dst, const char *restrict src, size_t maxlen);
 
+/// Duplicates a chunk of memory using xmalloc
+///
+/// @see {xmalloc}
+/// @param data pointer to the chunk
+/// @param len size of the chunk
+/// @return a pointer
+char *xmemdup(const char *data, size_t len)
+ FUNC_ATTR_MALLOC FUNC_ATTR_WARN_UNUSED_RESULT FUNC_ATTR_NONNULL_RET;
+
 /// Old low level memory allocation function.
 ///
 /// @deprecated use xmalloc() directly instead
