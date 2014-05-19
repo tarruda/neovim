@@ -12,6 +12,7 @@
 
 void heap_init(void);
 HEAP_DECLS(buf_T, buffer)
+HEAP_DECLS(win_T, window)
 
 #endif  // NVIM_OBJECT_H
 
