@@ -13,6 +13,7 @@
 void heap_init(void);
 HEAP_DECLS(buf_T, buffer)
 HEAP_DECLS(win_T, window)
+HEAP_DECLS(tabpage_T, tabpage)
 
 #endif  // NVIM_OBJECT_H
 
