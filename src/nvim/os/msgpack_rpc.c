@@ -142,17 +142,20 @@ bool msgpack_rpc_to_string(msgpack_object *obj, String *arg)
 
 bool msgpack_rpc_to_buffer(msgpack_object *obj, Buffer *arg)
 {
-  return msgpack_rpc_to_integer(obj, arg);
+  *arg = obj->via.u64;
+  return obj->type == MSGPACK_OBJECT_POSITIVE_INTEGER;
 }
 
 bool msgpack_rpc_to_window(msgpack_object *obj, Window *arg)
 {
-  return msgpack_rpc_to_integer(obj, arg);
+  *arg = obj->via.u64;
+  return obj->type == MSGPACK_OBJECT_POSITIVE_INTEGER;
 }
 
 bool msgpack_rpc_to_tabpage(msgpack_object *obj, Tabpage *arg)
 {
-  return msgpack_rpc_to_integer(obj, arg);
+  *arg = obj->via.u64;
+  return obj->type == MSGPACK_OBJECT_POSITIVE_INTEGER;
 }
 
 bool msgpack_rpc_to_object(msgpack_object *obj, Object *arg)
@@ -271,17 +274,17 @@ void msgpack_rpc_from_string(String result, msgpack_packer *res)
 
 void msgpack_rpc_from_buffer(Buffer result, msgpack_packer *res)
 {
-  msgpack_rpc_from_integer(result, res);
+  msgpack_pack_uint64(res, result);
 }
 
 void msgpack_rpc_from_window(Window result, msgpack_packer *res)
 {
-  msgpack_rpc_from_integer(result, res);
+  msgpack_pack_uint64(res, result);
 }
 
 void msgpack_rpc_from_tabpage(Tabpage result, msgpack_packer *res)
 {
-  msgpack_rpc_from_integer(result, res);
+  msgpack_pack_uint64(res, result);
 }
 
 void msgpack_rpc_from_object(Object result, msgpack_packer *res)
@@ -391,5 +394,8 @@ void msgpack_rpc_free_dictionary(Dictionary value)
   free(value.items);
 }
 
+TYPED_ARRAY_IMPL(Buffer, buffer)
+TYPED_ARRAY_IMPL(Window, window)
+TYPED_ARRAY_IMPL(Tabpage, tabpage)
 TYPED_ARRAY_IMPL(String, string)
 

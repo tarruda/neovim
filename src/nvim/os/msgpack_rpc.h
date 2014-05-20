@@ -86,6 +86,9 @@ void msgpack_rpc_from_dictionary(Dictionary result, msgpack_packer *res);
 #define msgpack_rpc_init_tabpage
 #define msgpack_rpc_init_object = {.type = kObjectTypeNil}
 #define msgpack_rpc_init_stringarray = ARRAY_DICT_INIT
+#define msgpack_rpc_init_bufferarray = ARRAY_DICT_INIT
+#define msgpack_rpc_init_windowarray = ARRAY_DICT_INIT
+#define msgpack_rpc_init_tabpagearray = ARRAY_DICT_INIT
 #define msgpack_rpc_init_array = ARRAY_DICT_INIT
 #define msgpack_rpc_init_dictionary = ARRAY_DICT_INIT
 
@@ -107,6 +110,9 @@ void msgpack_rpc_free_array(Array value);
 void msgpack_rpc_free_dictionary(Dictionary value);
 
 TYPED_ARRAY_DECLS(String, string)
+TYPED_ARRAY_DECLS(Buffer, buffer)
+TYPED_ARRAY_DECLS(Window, window)
+TYPED_ARRAY_DECLS(Tabpage, tabpage)
 
 #endif  // NVIM_OS_MSGPACK_RPC_H
 

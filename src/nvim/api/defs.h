@@ -26,12 +26,15 @@ typedef struct {
   size_t size;
 } String;
 
-typedef Integer Buffer;
-typedef Integer Window;
-typedef Integer Tabpage;
+typedef uint64_t Buffer;
+typedef uint64_t Window;
+typedef uint64_t Tabpage;
 
 typedef struct object Object;
 
+TYPED_ARRAY_OF(Buffer);
+TYPED_ARRAY_OF(Window);
+TYPED_ARRAY_OF(Tabpage);
 TYPED_ARRAY_OF(String);
 
 typedef struct {

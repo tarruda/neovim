@@ -6,10 +6,11 @@
 #include "nvim/api/vim.h"
 #include "nvim/api/defs.h"
 #include "nvim/api/helpers.h"
+#include "nvim/memory.h"
 
-Integer tabpage_get_window_count(Tabpage tabpage, Error *err)
+WindowArray tabpage_get_windows(Tabpage tabpage, Error *err)
 {
-  Integer rv = 0;
+  WindowArray rv = {.size = 0};
   tabpage_T *tab = find_tab(tabpage, err);
 
   if (!tab) {
@@ -23,7 +24,17 @@ Integer tabpage_get_window_count(Tabpage tabpage, Error *err)
     if (tp != tab) {
       break;
     }
-    rv++;
+    rv.size++;
+  }
+
+  rv.items = xmalloc(sizeof(Window) * rv.size);
+  size_t i = 0;
+
+  FOR_ALL_TAB_WINDOWS(tp, wp) {
+    if (tp != tab) {
+      break;
+    }
+    rv.items[i++] = wp->uid;
   }
 
   return rv;
