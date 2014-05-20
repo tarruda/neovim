@@ -27,6 +27,7 @@
 
 #include <string.h>
 
+#include "nvim/heap.h"
 #include "nvim/vim.h"
 #include "nvim/os_unix.h"
 #include "nvim/buffer.h"
@@ -542,6 +543,7 @@ int mch_nodetype(char_u *name)
 
 void mch_early_init()
 {
+  heap_init();
   time_init();
 }
 
