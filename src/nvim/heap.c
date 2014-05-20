@@ -22,6 +22,12 @@
   }
 
 
+static uint64_t uid = 1;
+static Map(uint64_t) *registered_buffers = NULL;
+
 void heap_init()
 {
+  registered_buffers = map_new(uint64_t)();
 }
+
+HEAP_IMPL(buf_T, buffer)

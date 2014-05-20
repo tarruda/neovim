@@ -11,6 +11,7 @@
   void heap_unregister_##name(type *name);
 
 void heap_init(void);
+HEAP_DECLS(buf_T, buffer)
 
 #endif  // NVIM_OBJECT_H
 

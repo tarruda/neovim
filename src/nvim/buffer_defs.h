@@ -401,6 +401,7 @@ typedef struct {
  */
 
 struct file_buffer {
+  uint64_t uid;                 // unique heap id for the buffer
   memline_T b_ml;               /* associated memline (also contains line
                                    count) */
 
