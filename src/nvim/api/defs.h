@@ -5,6 +5,12 @@
 #include <stdbool.h>
 #include <string.h>
 
+#define TYPED_ARRAY_OF(type)                                                  \
+  typedef struct {                                                            \
+    type *items;                                                              \
+    size_t size;                                                              \
+  } type##Array
+
 // Basic types
 typedef struct {
   char msg[256];
@@ -26,10 +32,7 @@ typedef Integer Tabpage;
 
 typedef struct object Object;
 
-typedef struct {
-  String *items;
-  size_t size;
-} StringArray;
+TYPED_ARRAY_OF(String);
 
 typedef struct {
   Integer row, col;

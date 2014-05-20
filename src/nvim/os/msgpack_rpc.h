@@ -8,6 +8,13 @@
 
 #include "nvim/api/defs.h"
 
+#define ARRAY_DICT_INIT {.size = 0}
+
+#define TYPED_ARRAY_DECLS(t, lt)                                            \
+  bool msgpack_rpc_to_##lt##array(msgpack_object *obj, t##Array *arg);      \
+  void msgpack_rpc_from_##lt##array(t##Array result, msgpack_packer *res);  \
+  void msgpack_rpc_free_##lt##array(t##Array value);
+
 /// Validates the basic structure of the msgpack-rpc call and fills `res`
 /// with the basic response structure.
 ///
@@ -47,7 +54,6 @@ bool msgpack_rpc_to_buffer(msgpack_object *obj, Buffer *arg);
 bool msgpack_rpc_to_window(msgpack_object *obj, Window *arg);
 bool msgpack_rpc_to_tabpage(msgpack_object *obj, Tabpage *arg);
 bool msgpack_rpc_to_object(msgpack_object *obj, Object *arg);
-bool msgpack_rpc_to_stringarray(msgpack_object *obj, StringArray *arg);
 bool msgpack_rpc_to_array(msgpack_object *obj, Array *arg);
 bool msgpack_rpc_to_dictionary(msgpack_object *obj, Dictionary *arg);
 
@@ -66,7 +72,6 @@ void msgpack_rpc_from_buffer(Buffer result, msgpack_packer *res);
 void msgpack_rpc_from_window(Window result, msgpack_packer *res);
 void msgpack_rpc_from_tabpage(Tabpage result, msgpack_packer *res);
 void msgpack_rpc_from_object(Object result, msgpack_packer *res);
-void msgpack_rpc_from_stringarray(StringArray result, msgpack_packer *res);
 void msgpack_rpc_from_array(Array result, msgpack_packer *res);
 void msgpack_rpc_from_dictionary(Dictionary result, msgpack_packer *res);
 
@@ -80,9 +85,9 @@ void msgpack_rpc_from_dictionary(Dictionary result, msgpack_packer *res);
 #define msgpack_rpc_init_window
 #define msgpack_rpc_init_tabpage
 #define msgpack_rpc_init_object = {.type = kObjectTypeNil}
-#define msgpack_rpc_init_stringarray = {.items = NULL, .size = 0}
-#define msgpack_rpc_init_array = {.items = NULL, .size = 0}
-#define msgpack_rpc_init_dictionary = {.items = NULL, .size = 0}
+#define msgpack_rpc_init_stringarray = ARRAY_DICT_INIT
+#define msgpack_rpc_init_array = ARRAY_DICT_INIT
+#define msgpack_rpc_init_dictionary = ARRAY_DICT_INIT
 
 /// Helpers for freeing arguments/return value
 ///
@@ -98,10 +103,10 @@ void msgpack_rpc_from_dictionary(Dictionary result, msgpack_packer *res);
 #define msgpack_rpc_free_window(value)
 #define msgpack_rpc_free_tabpage(value)
 void msgpack_rpc_free_object(Object value);
-void msgpack_rpc_free_stringarray(StringArray value);
 void msgpack_rpc_free_array(Array value);
 void msgpack_rpc_free_dictionary(Dictionary value);
 
+TYPED_ARRAY_DECLS(String, string)
 
 #endif  // NVIM_OS_MSGPACK_RPC_H
 
