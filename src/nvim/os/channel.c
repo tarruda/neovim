@@ -41,12 +41,12 @@ static msgpack_sbuffer msgpack_event_buffer;
 static void job_out(RStream *rstream, void *data, bool eof);
 static void job_err(RStream *rstream, void *data, bool eof);
 static void parse_msgpack(RStream *rstream, void *data, bool eof);
-static void send_event(Channel *channel, char *type, typval_T *data);
-static void broadcast_event(char *type, typval_T *data);
+static void send_event(Channel *channel, char *type, Object data);
+static void broadcast_event(char *type, Object data);
 static void unsubscribe(Channel *channel, char *event);
 static void close_channel(Channel *channel);
 static void close_cb(uv_handle_t *handle);
-static WBuffer *serialize_event(char *type, typval_T *data);
+static WBuffer *serialize_event(char *type, Object data);
 static Channel *register_channel(void);
 
 void channel_init()
@@ -91,7 +91,8 @@ void channel_from_stream(uv_stream_t *stream)
   channel->data.streams.uv = stream;
 }
 
-bool channel_send_event(uint64_t id, char *type, typval_T *data)
+
+bool channel_send_event(uint64_t id, char *type, Object data)
 {
   Channel *channel = NULL;
 
@@ -183,12 +184,12 @@ static void parse_msgpack(RStream *rstream, void *data, bool eof)
   }
 }
 
-static void send_event(Channel *channel, char *type, typval_T *data)
+static void send_event(Channel *channel, char *type, Object data)
 {
   wstream_write(channel->data.streams.write, serialize_event(type, data));
 }
 
-static void broadcast_event(char *type, typval_T *data)
+static void broadcast_event(char *type, Object data)
 {
   kvec_t(Channel *) subscribed;
   kv_init(subscribed);
@@ -260,17 +261,16 @@ static void close_cb(uv_handle_t *handle)
   free(handle);
 }
 
-static WBuffer *serialize_event(char *type, typval_T *data)
+static WBuffer *serialize_event(char *type, Object data)
 {
   String event_type = {.size = strnlen(type, EVENT_MAXLEN), .data = type};
-  Object event_data = vim_to_object(data);
   msgpack_packer packer;
   msgpack_packer_init(&packer, &msgpack_event_buffer, msgpack_sbuffer_write);
-  msgpack_rpc_notification(event_type, event_data, &packer);
+  msgpack_rpc_notification(event_type, data, &packer);
   WBuffer *rv = wstream_new_buffer(msgpack_event_buffer.data,
                                    msgpack_event_buffer.size,
                                    true);
-  msgpack_rpc_free_object(event_data);
+  msgpack_rpc_free_object(data);
   msgpack_sbuffer_clear(&msgpack_event_buffer);
 
   return rv;

@@ -3,6 +3,7 @@
 
 #include <uv.h>
 
+#include "nvim/api/private/defs.h"
 #include "nvim/vim.h"
 
 #define EVENT_MAXLEN 512
@@ -32,7 +33,7 @@ void channel_from_job(char **argv);
 /// @param type The event type, an arbitrary string
 /// @param obj The event data
 /// @return True if the data was sent successfully, false otherwise.
-bool channel_send_event(uint64_t id, char *type, typval_T *data);
+bool channel_send_event(uint64_t id, char *type, Object data);
 
 /// Subscribes to event broadcasts
 ///

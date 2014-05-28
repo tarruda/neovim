@@ -6,6 +6,7 @@
 #include "nvim/api/private/defs.h"
 #include "nvim/vim.h"
 #include "nvim/memory.h"
+#include "nvim/lib/kvec.h"
 
 #define set_api_error(message, err)                \
   do {                                             \
@@ -66,26 +67,26 @@ void set_option_to(void *to, int type, String name, Object value, Error *err);
 /// @return The converted value
 Object vim_to_object(typval_T *obj);
 
-/// Finds the pointer for a window number
+/// Finds the pointer for a buffer number
 ///
-/// @param window the window number
+/// @param buffer the buffer number
 /// @param[out] err Details of an error that may have occurred
-/// @return the window pointer
-buf_T *find_buffer(Buffer buffer, Error *err);
+/// @return the buffer pointer
+buf_T *find_buffer_by_handle(Buffer buffer, Error *err);
 
 /// Finds the pointer for a window number
 ///
 /// @param window the window number
 /// @param[out] err Details of an error that may have occurred
 /// @return the window pointer
-win_T * find_window(Window window, Error *err);
+win_T * find_window_by_handle(Window window, Error *err);
 
 /// Finds the pointer for a tabpage number
 ///
 /// @param tabpage the tabpage number
 /// @param[out] err Details of an error that may have occurred
 /// @return the tabpage pointer
-tabpage_T * find_tab(Tabpage tabpage, Error *err);
+tabpage_T * find_tab_by_handle(Tabpage tabpage, Error *err);
 
 /// Copies a C string into a String (binary safe string, characters + length)
 ///
@@ -93,6 +94,41 @@ tabpage_T * find_tab(Tabpage tabpage, Error *err);
 /// @return the resulting String, if the input string was NULL, then an
 ///         empty String is returned
 String cstr_to_string(const char *str);
+
+#define BOOL_OBJ(b) ((Object) {                                               \
+  .type = kObjectTypeBoolean,                                                 \
+  .data.boolean = b                                                           \
+ })
+
+#define INTEGER_OBJ(i) ((Object) {                                            \
+  .type = kObjectTypeInteger,                                                 \
+  .data.integer = i                                                           \
+ })
+
+#define STRING_OBJ(s) ((Object) {                                             \
+  .type = kObjectTypeString,                                                  \
+  .data.string = cstr_to_string(s)                                            \
+ })
+
+#define ARRAY_OBJ(a) ((Object) {                                              \
+  .type = kObjectTypeArray,                                                   \
+  .data.array = a                                                             \
+ })
+
+#define DICTIONARY_OBJ(d) ((Object) {                                         \
+  .type = kObjectTypeDictionary,                                              \
+  .data.dictionary = d                                                        \
+ })
+
+#define NIL ((Object) {.type = kObjectTypeNil})
+
+#define PUT(dict, k, v)                                                       \
+  kv_push(KeyValuePair,                                                       \
+          dict,                                                               \
+          ((KeyValuePair) {.key = cstr_to_string(k), .value = v}))
+
+#define ADD(array, item)                                                      \
+  kv_push(Object, array, item)
 
 #endif  // NVIM_API_PRIVATE_HELPERS_H
 

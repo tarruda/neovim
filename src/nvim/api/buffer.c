@@ -42,7 +42,7 @@ static int64_t normalize_index(buf_T *buf, int64_t index);
 
 Integer buffer_get_length(Buffer buffer, Error *err)
 {
-  buf_T *buf = find_buffer(buffer, err);
+  buf_T *buf = find_buffer_by_handle(buffer, err);
 
   if (!buf) {
     return 0;
@@ -85,7 +85,7 @@ StringArray buffer_get_slice(Buffer buffer,
                              Error *err)
 {
   StringArray rv = ARRAY_DICT_INIT;
-  buf_T *buf = find_buffer(buffer, err);
+  buf_T *buf = find_buffer_by_handle(buffer, err);
 
   if (!buf) {
     return rv;
@@ -135,7 +135,7 @@ void buffer_set_slice(Buffer buffer,
                       StringArray replacement,
                       Error *err)
 {
-  buf_T *buf = find_buffer(buffer, err);
+  buf_T *buf = find_buffer_by_handle(buffer, err);
 
   if (!buf) {
     return;
@@ -253,7 +253,7 @@ end:
 Object buffer_get_var(Buffer buffer, String name, Error *err)
 {
   Object rv;
-  buf_T *buf = find_buffer(buffer, err);
+  buf_T *buf = find_buffer_by_handle(buffer, err);
 
   if (!buf) {
     return rv;
@@ -265,7 +265,7 @@ Object buffer_get_var(Buffer buffer, String name, Error *err)
 Object buffer_set_var(Buffer buffer, String name, Object value, Error *err)
 {
   Object rv;
-  buf_T *buf = find_buffer(buffer, err);
+  buf_T *buf = find_buffer_by_handle(buffer, err);
 
   if (!buf) {
     return rv;
@@ -277,7 +277,7 @@ Object buffer_set_var(Buffer buffer, String name, Object value, Error *err)
 Object buffer_get_option(Buffer buffer, String name, Error *err)
 {
   Object rv;
-  buf_T *buf = find_buffer(buffer, err);
+  buf_T *buf = find_buffer_by_handle(buffer, err);
 
   if (!buf) {
     return rv;
@@ -288,7 +288,7 @@ Object buffer_get_option(Buffer buffer, String name, Error *err)
 
 void buffer_set_option(Buffer buffer, String name, Object value, Error *err)
 {
-  buf_T *buf = find_buffer(buffer, err);
+  buf_T *buf = find_buffer_by_handle(buffer, err);
 
   if (!buf) {
     return;
@@ -300,7 +300,7 @@ void buffer_set_option(Buffer buffer, String name, Object value, Error *err)
 Integer buffer_get_number(Buffer buffer, Error *err)
 {
   Integer rv = 0;
-  buf_T *buf = find_buffer(buffer, err);
+  buf_T *buf = find_buffer_by_handle(buffer, err);
 
   if (!buf) {
     return rv;
@@ -312,7 +312,7 @@ Integer buffer_get_number(Buffer buffer, Error *err)
 String buffer_get_name(Buffer buffer, Error *err)
 {
   String rv = STRING_INIT;
-  buf_T *buf = find_buffer(buffer, err);
+  buf_T *buf = find_buffer_by_handle(buffer, err);
 
   if (!buf || buf->b_ffname == NULL) {
     return rv;
@@ -323,7 +323,7 @@ String buffer_get_name(Buffer buffer, Error *err)
 
 void buffer_set_name(Buffer buffer, String name, Error *err)
 {
-  buf_T *buf = find_buffer(buffer, err);
+  buf_T *buf = find_buffer_by_handle(buffer, err);
 
   if (!buf) {
     return;
@@ -352,7 +352,7 @@ void buffer_set_name(Buffer buffer, String name, Error *err)
 Boolean buffer_is_valid(Buffer buffer)
 {
   Error stub = {.set = false};
-  return find_buffer(buffer, &stub) != NULL;
+  return find_buffer_by_handle(buffer, &stub) != NULL;
 }
 
 void buffer_insert(Buffer buffer, Integer lnum, StringArray lines, Error *err)
@@ -363,7 +363,7 @@ void buffer_insert(Buffer buffer, Integer lnum, StringArray lines, Error *err)
 Position buffer_get_mark(Buffer buffer, String name, Error *err)
 {
   Position rv;
-  buf_T *buf = find_buffer(buffer, err);
+  buf_T *buf = find_buffer_by_handle(buffer, err);
 
   if (!buf) {
     return rv;

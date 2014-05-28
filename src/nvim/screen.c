@@ -88,6 +88,7 @@
 
 #include <string.h>
 
+#include "nvim/api/private/helpers.h"
 #include "nvim/vim.h"
 #include "nvim/arabic.h"
 #include "nvim/screen.h"
@@ -127,6 +128,14 @@
 #include "nvim/undo.h"
 #include "nvim/version.h"
 #include "nvim/window.h"
+#include "nvim/os/channel.h"
+
+#define LINE_BUFFER_SIZE 4096
+
+win_T *current_window = NULL;
+int line_number = -1;
+char line_buffer[LINE_BUFFER_SIZE];
+size_t line_buffer_idx;
 
 #define MB_FILLER_CHAR '<'  /* character used when a double-width character
                              * doesn't fit. */
@@ -151,6 +160,7 @@ static foldinfo_T win_foldinfo; /* info for 'foldcolumn' */
  */
 static schar_T  *current_ScreenLine;
 
+static void push_screen_char(int off);
 static void win_update(win_T *wp);
 static void win_draw_end(win_T *wp, int c1, int c2, int row, int endrow,
                          hlf_T hl);
@@ -605,7 +615,6 @@ void update_screen(int type)
   if (!did_intro)
     maybe_intro_message();
   did_intro = TRUE;
-
 }
 
 /*
@@ -839,7 +848,8 @@ static void win_update(win_T *wp)
     wp->w_redr_type = 0;
     return;
   }
-
+  // Set a pointer to the window being updated
+  current_window = wp;
   init_search_hl(wp);
 
   /* Force redraw when width of 'number' or 'relativenumber' column
@@ -1723,6 +1733,8 @@ static void win_update(win_T *wp)
   /* restore got_int, unless CTRL-C was hit while redrawing */
   if (!got_int)
     got_int = save_got_int;
+
+  current_window = NULL;
 }
 
 
@@ -4288,6 +4300,10 @@ static void screen_line(int row, int coloff, int endcol, int clear_width, int rl
   if (endcol > Columns)
     endcol = Columns;
 
+  if (current_window) {
+    line_number = row;
+    line_buffer_idx = 0;
+  }
 
   off_from = (unsigned)(current_ScreenLine - ScreenLines);
   off_to = LineOffset[row] + coloff;
@@ -4328,68 +4344,6 @@ static void screen_line(int row, int coloff, int endcol, int clear_width, int rl
 
 
     if (redraw_this) {
-      /*
-       * Special handling when 'xs' termcap flag set (hpterm):
-       * Attributes for characters are stored at the position where the
-       * cursor is when writing the highlighting code.  The
-       * start-highlighting code must be written with the cursor on the
-       * first highlighted character.  The stop-highlighting code must
-       * be written with the cursor just after the last highlighted
-       * character.
-       * Overwriting a character doesn't remove it's highlighting.  Need
-       * to clear the rest of the line, and force redrawing it
-       * completely.
-       */
-      if (       p_wiv
-                 && !force
-                 && ScreenAttrs[off_to] != 0
-                 && ScreenAttrs[off_from] != ScreenAttrs[off_to]) {
-        /*
-         * Need to remove highlighting attributes here.
-         */
-        windgoto(row, col + coloff);
-        out_str(T_CE);                  /* clear rest of this screen line */
-        screen_start();                 /* don't know where cursor is now */
-        force = TRUE;                   /* force redraw of rest of the line */
-        redraw_next = TRUE;             /* or else next char would miss out */
-
-        /*
-         * If the previous character was highlighted, need to stop
-         * highlighting at this character.
-         */
-        if (col + coloff > 0 && ScreenAttrs[off_to - 1] != 0) {
-          screen_attr = ScreenAttrs[off_to - 1];
-          term_windgoto(row, col + coloff);
-          screen_stop_highlight();
-        } else
-          screen_attr = 0;                  /* highlighting has stopped */
-      }
-      if (enc_dbcs != 0) {
-        /* Check if overwriting a double-byte with a single-byte or
-         * the other way around requires another character to be
-         * redrawn.  For UTF-8 this isn't needed, because comparing
-         * ScreenLinesUC[] is sufficient. */
-        if (char_cells == 1
-            && col + 1 < endcol
-            && (*mb_off2cells)(off_to, max_off_to) > 1) {
-          /* Writing a single-cell character over a double-cell
-           * character: need to redraw the next cell. */
-          ScreenLines[off_to + 1] = 0;
-          redraw_next = TRUE;
-        } else if (char_cells == 2
-                   && col + 2 < endcol
-                   && (*mb_off2cells)(off_to, max_off_to) == 1
-                   && (*mb_off2cells)(off_to + 1, max_off_to) > 1) {
-          /* Writing the second half of a double-cell character over
-           * a double-cell character: need to redraw the second
-           * cell. */
-          ScreenLines[off_to + 2] = 0;
-          redraw_next = TRUE;
-        }
-
-        if (enc_dbcs == DBCS_JPNU)
-          ScreenLines2[off_to] = ScreenLines2[off_from];
-      }
       /* When writing a single-width character over a double-width
        * character and at the end of the redrawn text, need to clear out
        * the right halve of the old character.
@@ -4455,6 +4409,10 @@ static void screen_line(int row, int coloff, int endcol, int clear_width, int rl
         screen_stop_highlight();
     }
 
+    if (current_window) {
+      push_screen_char(off_to);
+    }
+
     off_to += CHAR_CELLS;
     off_from += CHAR_CELLS;
     col += CHAR_CELLS;
@@ -4512,6 +4470,17 @@ static void screen_line(int row, int coloff, int endcol, int clear_width, int rl
       }
     } else
       LineWraps[row] = FALSE;
+  }
+
+  if (current_window) {
+    // Terminate the line string
+    line_buffer[line_buffer_idx] = NUL;
+    // Broadcast the event
+    Dictionary event_data = {0, 0, 0};
+    PUT(event_data, "window_id", INTEGER_OBJ(current_window->handle));
+    PUT(event_data, "line_number", INTEGER_OBJ(line_number));
+    PUT(event_data, "text", STRING_OBJ(line_buffer));
+    channel_send_event(0, "redraw:update_line", DICTIONARY_OBJ(event_data));
   }
 }
 
@@ -5890,10 +5859,9 @@ static void screen_char(unsigned off, int row, int col)
   if (enc_utf8 && ScreenLinesUC[off] != 0) {
     char_u buf[MB_MAXBYTES + 1];
 
-    /* Convert UTF-8 character to bytes and write it. */
-
+    // Convert UTF-8 character to bytes
     buf[utfc_char2bytes(off, buf)] = NUL;
-
+    // Write to the terminal
     out_str(buf);
     if (utf_char2cells(ScreenLinesUC[off]) > 1)
       ++screen_cur_col;
@@ -7173,6 +7141,15 @@ screen_ins_lines (
     }
   }
 
+  if (current_window) {
+    // Broadcast the event
+    Dictionary event_data = {0, 0, 0};
+    PUT(event_data, "window_id", INTEGER_OBJ(current_window->handle));
+    PUT(event_data, "line_number", INTEGER_OBJ(line_number));
+    PUT(event_data, "count", INTEGER_OBJ(line_count));
+    channel_send_event(0, "redraw:insert_line", DICTIONARY_OBJ(event_data));
+  }
+
   return OK;
 }
 
@@ -7353,6 +7330,14 @@ screen_del_lines (
     }
   }
 
+  if (current_window) {
+    // Broadcast the event
+    Dictionary event_data = {0, 0, 0};
+    PUT(event_data, "window_id", INTEGER_OBJ(current_window->handle));
+    PUT(event_data, "line_number", INTEGER_OBJ(line_number));
+    PUT(event_data, "count", INTEGER_OBJ(line_count));
+    channel_send_event(0, "redraw:delete_line", DICTIONARY_OBJ(event_data));
+  }
 
   return OK;
 }
@@ -7570,7 +7555,6 @@ static void draw_tabline(void)
 
   redraw_tabline = FALSE;
 
-
   if (tabline_height() < 1)
     return;
 
@@ -7592,6 +7576,9 @@ static void draw_tabline(void)
           (char_u *)"", OPT_FREE, SID_ERROR);
     called_emsg |= save_called_emsg;
   } else {
+    // Array containing the tab state for the redraw event
+    Array event_data = {0, 0, 0};
+
     for (tp = first_tabpage; tp != NULL; tp = tp->tp_next)
       ++tabcount;
 
@@ -7604,14 +7591,21 @@ static void draw_tabline(void)
     scol = 0;
     for (tp = first_tabpage; tp != NULL && col < Columns - 4;
          tp = tp->tp_next) {
+      // Object that will contain structured information about a tab
+      Dictionary tab_data = {0, 0, 0};
+      PUT(tab_data, "id", INTEGER_OBJ(tp->handle));
+
       scol = col;
 
-      if (tp->tp_topframe == topframe)
+      bool selected = tp->tp_topframe == topframe;
+      PUT(tab_data, "selected", BOOL_OBJ(selected));
+
+      if (selected)
         attr = attr_sel;
       if (use_sep_chars && col > 0)
         screen_putchar('|', 0, col++, attr);
 
-      if (tp->tp_topframe != topframe)
+      if (!selected)
         attr = attr_nosel;
 
       screen_putchar(' ', 0, col++, attr);
@@ -7644,11 +7638,15 @@ static void draw_tabline(void)
         screen_putchar(' ', 0, col++, attr);
       }
 
+      PUT(tab_data, "window_count", INTEGER_OBJ(wincount));
+      PUT(tab_data, "modified", BOOL_OBJ(modified));
+
       room = scol - col + tabwidth - 1;
       if (room > 0) {
         /* Get buffer name in NameBuff[] */
         get_trans_bufname(cwp->w_buffer);
         shorten_dir(NameBuff);
+        PUT(tab_data, "text", STRING_OBJ((char *)NameBuff));
         len = vim_strsize(NameBuff);
         p = NameBuff;
         if (has_mbyte)
@@ -7673,7 +7671,11 @@ static void draw_tabline(void)
       ++tabcount;
       while (scol < col)
         TabPageIdxs[scol++] = tabcount;
+
+      ADD(event_data, DICTIONARY_OBJ(tab_data));
     }
+
+    channel_send_event(0, "redraw:tabs", ARRAY_OBJ(event_data));
 
     if (use_sep_chars)
       c = '_';
@@ -8004,3 +8006,15 @@ int screen_screenrow(void)
   return screen_cur_row;
 }
 
+
+static void push_screen_char(int off)
+{
+  // Put text and attributes to the line data object for the next
+  // redraw event
+  if (enc_utf8 && ScreenLinesUC[off]) {
+    line_buffer_idx +=
+      utfc_char2bytes(off, (uint8_t *)(line_buffer + line_buffer_idx));
+  } else {
+    line_buffer[line_buffer_idx++] = ScreenLines[off];
+  }
+}

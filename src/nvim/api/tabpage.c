@@ -11,7 +11,7 @@
 WindowArray tabpage_get_windows(Tabpage tabpage, Error *err)
 {
   WindowArray rv = ARRAY_DICT_INIT;
-  tabpage_T *tab = find_tab(tabpage, err);
+  tabpage_T *tab = find_tab_by_handle(tabpage, err);
 
   if (!tab) {
     return rv;
@@ -43,7 +43,7 @@ WindowArray tabpage_get_windows(Tabpage tabpage, Error *err)
 Object tabpage_get_var(Tabpage tabpage, String name, Error *err)
 {
   Object rv;
-  tabpage_T *tab = find_tab(tabpage, err);
+  tabpage_T *tab = find_tab_by_handle(tabpage, err);
 
   if (!tab) {
     return rv;
@@ -55,7 +55,7 @@ Object tabpage_get_var(Tabpage tabpage, String name, Error *err)
 Object tabpage_set_var(Tabpage tabpage, String name, Object value, Error *err)
 {
   Object rv;
-  tabpage_T *tab = find_tab(tabpage, err);
+  tabpage_T *tab = find_tab_by_handle(tabpage, err);
 
   if (!tab) {
     return rv;
@@ -67,7 +67,7 @@ Object tabpage_set_var(Tabpage tabpage, String name, Object value, Error *err)
 Window tabpage_get_window(Tabpage tabpage, Error *err)
 {
   Window rv = 0;
-  tabpage_T *tab = find_tab(tabpage, err);
+  tabpage_T *tab = find_tab_by_handle(tabpage, err);
 
   if (!tab) {
     return rv;
@@ -92,6 +92,6 @@ Window tabpage_get_window(Tabpage tabpage, Error *err)
 Boolean tabpage_is_valid(Tabpage tabpage)
 {
   Error stub = {.set = false};
-  return find_tab(tabpage, &stub) != NULL;
+  return find_tab_by_handle(tabpage, &stub) != NULL;
 }
 

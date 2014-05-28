@@ -220,7 +220,7 @@ Buffer vim_get_current_buffer(void)
 
 void vim_set_current_buffer(Buffer buffer, Error *err)
 {
-  buf_T *buf = find_buffer(buffer, err);
+  buf_T *buf = find_buffer_by_handle(buffer, err);
 
   if (!buf) {
     return;
@@ -268,7 +268,7 @@ Window vim_get_current_window(void)
 
 void vim_set_current_window(Window window, Error *err)
 {
-  win_T *win = find_window(window, err);
+  win_T *win = find_window_by_handle(window, err);
 
   if (!win) {
     return;
@@ -317,7 +317,7 @@ Tabpage vim_get_current_tabpage(void)
 
 void vim_set_current_tabpage(Tabpage tabpage, Error *err)
 {
-  tabpage_T *tp = find_tab(tabpage, err);
+  tabpage_T *tp = find_tab_by_handle(tabpage, err);
 
   if (!tp) {
     return;

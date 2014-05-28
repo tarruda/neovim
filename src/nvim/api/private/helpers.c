@@ -285,7 +285,7 @@ Object vim_to_object(typval_T *obj)
   return rv;
 }
 
-buf_T *find_buffer(Buffer buffer, Error *err)
+buf_T *find_buffer_by_handle(Buffer buffer, Error *err)
 {
   buf_T *rv = handle_get_buffer(buffer);
 
@@ -296,7 +296,7 @@ buf_T *find_buffer(Buffer buffer, Error *err)
   return rv;
 }
 
-win_T * find_window(Window window, Error *err)
+win_T * find_window_by_handle(Window window, Error *err)
 {
   win_T *rv = handle_get_window(window);
 
@@ -307,7 +307,7 @@ win_T * find_window(Window window, Error *err)
   return rv;
 }
 
-tabpage_T * find_tab(Tabpage tabpage, Error *err)
+tabpage_T * find_tab_by_handle(Tabpage tabpage, Error *err)
 {
   tabpage_T *rv = handle_get_tabpage(tabpage);
 
