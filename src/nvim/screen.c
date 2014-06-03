@@ -7295,6 +7295,14 @@ screen_del_lines (
     }
   }
 
+  if (current_window) {
+    // Broadcast the event
+    Dictionary event_data = {0, 0, 0};
+    PUT(event_data, "window_id", INTEGER_OBJ(current_window->handle));
+    PUT(event_data, "row_index", INTEGER_OBJ(row - W_WINROW(current_window)));
+    PUT(event_data, "count", INTEGER_OBJ(line_count));
+    channel_send_event(0, "redraw:delete_line", DICTIONARY_OBJ(event_data));
+  }
 
   return OK;
 }
