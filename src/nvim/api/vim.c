@@ -5,6 +5,7 @@
 
 #include "nvim/api/vim.h"
 #include "nvim/api/private/helpers.h"
+#include "nvim/api/private/redraw.h"
 #include "nvim/api/private/defs.h"
 #include "nvim/api/buffer.h"
 #include "nvim/os/channel.h"
@@ -446,6 +447,13 @@ void vim_unsubscribe(uint64_t channel_id, String event)
   memcpy(e, event.data, length);
   e[length] = NUL;
   channel_unsubscribe(channel_id, e);
+}
+
+/// Forces a complete redraw. This can be used by UI clients to get a full
+/// state of the screen when connecting through redraw:* events
+void vim_request_screen(uint64_t channel_id)
+{
+  redraw_layout(channel_id);
 }
 
 /// Writes a message to vim output or error buffer. The string is split
