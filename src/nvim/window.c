@@ -7,6 +7,8 @@
  */
 
 #include "nvim/api/private/handle.h"
+#include "nvim/api/private/defs.h"
+#include "nvim/api/private/helpers.h"
 #include "nvim/vim.h"
 #include "nvim/window.h"
 #include "nvim/buffer.h"
@@ -48,12 +50,12 @@
 #include "nvim/term.h"
 #include "nvim/undo.h"
 #include "nvim/os/os.h"
+#include "nvim/os/channel.h"
 
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "window.c.generated.h"
 #endif
-
 
 
 
@@ -897,6 +899,8 @@ int win_split_ins(int size, int flags, win_T *new_wp, int dir)
     p_wiw = i;
   else
     p_wh = i;
+
+  send_layout_event(0);
 
   return OK;
 }
@@ -1895,6 +1899,7 @@ int win_close(win_T *win, int free_buf)
 
 
   redraw_all_later(NOT_VALID);
+  send_layout_event(0);
   return OK;
 }
 
@@ -3018,6 +3023,7 @@ static void enter_tabpage(tabpage_T *tp, buf_T *old_curbuf, int trigger_enter_au
   firstwin = tp->tp_firstwin;
   lastwin = tp->tp_lastwin;
   topframe = tp->tp_topframe;
+  send_layout_event(0);
 
   /* We would like doing the TabEnter event first, but we don't have a
    * valid current window yet, which may break some commands.
@@ -5342,5 +5348,36 @@ static int frame_check_width(frame_T *topfrp, int width)
         return FALSE;
 
   return TRUE;
+}
+
+void send_layout_event(uint64_t channel_id)
+{
+  Dictionary event_data = build_layout_event(topframe);
+  channel_send_event(channel_id, "redraw:layout", DICTIONARY_OBJ(event_data));
+}
+
+static Dictionary build_layout_event(frame_T *frame)
+{
+  Dictionary rv = {0, 0, 0};
+
+  if (frame->fr_layout == FR_LEAF) {
+    PUT(rv, "window", INTEGER_OBJ(frame->fr_win->handle));
+    PUT(rv, "width", INTEGER_OBJ(frame->fr_win->w_width));
+    PUT(rv, "height", INTEGER_OBJ(frame->fr_win->w_height));
+    PUT(rv, "type", STRING_OBJ("leaf"));
+  } else {
+    Array children = {0, 0, 0};
+
+    for (frame_T *f = frame->fr_child; f != NULL; f = f->fr_next) {
+      ADD(children, DICTIONARY_OBJ(build_layout_event(f)));
+    }
+
+    PUT(rv, "children", ARRAY_OBJ(children));
+    PUT(rv, "width", INTEGER_OBJ(frame->fr_width));
+    PUT(rv, "height", INTEGER_OBJ(frame->fr_height));
+    PUT(rv, "type", STRING_OBJ(frame->fr_layout == FR_ROW ? "row": "column"));
+  }
+
+  return rv;
 }
 
