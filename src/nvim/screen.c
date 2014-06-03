@@ -129,12 +129,36 @@
 #include "nvim/undo.h"
 #include "nvim/version.h"
 #include "nvim/window.h"
+#include "nvim/map.h"
 #include "nvim/os/channel.h"
 
-static win_T *current_window = NULL;
+typedef struct {
+  char buffer[4096];
+  size_t offset, prev_offset;
+  Dictionary attributes;
+  Map(cstr_t, size_t) *added_attributes;
+} LineInfo;
+
+// State of the window/line being drawn
+static struct {
+  win_T *window;
+  struct {
+    size_t colon, fold, sign, number, deleted, linebreak;
+  } width;
+} current = {NULL, {0, 0, 0, 0, 0, 0}};
+
+// The color attribute strings are cached to optimize the number of
+// allocations
+PMap(uint16_t) *fg_colors = NULL;
+PMap(uint16_t) *bg_colors = NULL;
+
 #define MB_FILLER_CHAR '<'  /* character used when a double-width character
                              * doesn't fit. */
 
+
+#ifdef INCLUDE_GENERATED_DECLARATIONS
+# include "screen.c.generated.h"
+#endif
 /*
  * The attributes that are actually active for writing to the screen.
  */
@@ -156,9 +180,6 @@ static foldinfo_T win_foldinfo; /* info for 'foldcolumn' */
 static schar_T  *current_ScreenLine;
 
 # define SCREEN_LINE(r, o, e, c, rl)    screen_line((r), (o), (e), (c), (rl))
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "screen.c.generated.h"
-#endif
 #define SEARCH_HL_PRIORITY 0
 
 //signs column
@@ -804,7 +825,7 @@ static void win_update(win_T *wp)
     return;
   }
   // Set a pointer to the window being updated
-  current_window = wp;
+  current.window = wp;
   init_search_hl(wp);
 
   /* Force redraw when width of 'number' or 'relativenumber' column
@@ -1689,7 +1710,7 @@ static void win_update(win_T *wp)
   if (!got_int)
     got_int = save_got_int;
 
-  current_window = NULL;
+  current.window = NULL;
 }
 
 
@@ -2712,6 +2733,17 @@ win_line (
     off += col;
   }
 
+  // The following 1.5k loc loop will prepare/display a screen line for the
+  // current window.
+  // While the line is being prepared, we store widths for the parts of the
+  // line that don't contain user text in order to send structured data
+  // with the 'line_update' event
+  current.width.colon =
+    current.width.fold =
+    current.width.sign =
+    current.width.number =
+    current.width.deleted =
+    current.width.linebreak = 0;
   /*
    * Repeat for the whole displayed line.
    */
@@ -2725,6 +2757,7 @@ win_line (
           n_extra = 1;
           c_extra = cmdwin_type;
           char_attr = hl_attr(HLF_AT);
+          current.width.colon = n_extra;
         }
       }
 
@@ -2738,6 +2771,7 @@ win_line (
           p_extra[n_extra] = NUL;
           c_extra = NUL;
           char_attr = hl_attr(HLF_FC);
+          current.width.fold = n_extra;
         }
       }
 
@@ -2764,6 +2798,8 @@ win_line (
                       char_attr = sign_get_attr(text_sign, FALSE);
                   }
               }
+
+              current.width.sign = n_extra;
           }
       }
 
@@ -2815,6 +2851,7 @@ win_line (
           if ((wp->w_p_cul || wp->w_p_rnu)
               && lnum == wp->w_cursor.lnum)
             char_attr = hl_attr(HLF_CLN);
+          current.width.number = n_extra;
         }
       }
 
@@ -2831,6 +2868,8 @@ win_line (
           else
             n_extra = W_WIDTH(wp) - col;
           char_attr = hl_attr(HLF_DED);
+
+          current.width.deleted = n_extra;
         }
         if (*p_sbr != NUL && need_showbreak) {
           /* Draw 'showbreak' at the start of each broken line. */
@@ -2846,6 +2885,7 @@ win_line (
           /* combine 'showbreak' with 'cursorline' */
           if (wp->w_p_cul && lnum == wp->w_cursor.lnum)
             char_attr = hl_combine_attr(char_attr, HLF_CLN);
+          current.width.linebreak = n_extra;
         }
       }
 
@@ -4216,6 +4256,13 @@ static void screen_line(int row, int coloff, int endcol, int clear_width, int rl
   int clear_next = FALSE;
   int char_cells;                       /* 1: normal char */
                                         /* 2: occupies two display cells */
+  LineInfo linfo;
+
+  if (current.window) {
+    linfo.attributes = (Dictionary) {0, 0, 0};
+    linfo.added_attributes = NULL;
+    linfo.offset = linfo.prev_offset = 0;
+  }
 # define CHAR_CELLS char_cells
 
   /* Check for illegal row and col, just in case. */
@@ -4223,7 +4270,6 @@ static void screen_line(int row, int coloff, int endcol, int clear_width, int rl
     row = Rows - 1;
   if (endcol > Columns)
     endcol = Columns;
-
 
   off_from = (unsigned)(current_ScreenLine - ScreenLines);
   off_to = LineOffset[row] + coloff;
@@ -4391,6 +4437,10 @@ static void screen_line(int row, int coloff, int endcol, int clear_width, int rl
         screen_stop_highlight();
     }
 
+    if (current.window) {
+      add_line_char(&linfo, off_to);
+    }
+
     off_to += CHAR_CELLS;
     off_from += CHAR_CELLS;
     col += CHAR_CELLS;
@@ -4448,6 +4498,35 @@ static void screen_line(int row, int coloff, int endcol, int clear_width, int rl
       }
     } else
       LineWraps[row] = FALSE;
+  }
+
+  if (current.window) {
+    // Prepare to emit the 'redraw:update_line' event
+    // Start by terminating the line buffer
+    linfo.buffer[linfo.offset] = NUL;
+    // Now split the logical sections of the line into the sections array
+    Array line = {0, 0, 0};
+    linfo.offset = 0;
+    add_line_section(&linfo, "colon", current.width.colon, &line);
+    add_line_section(&linfo, "fold", current.width.fold, &line);
+    add_line_section(&linfo, "sign", current.width.sign, &line);
+    add_line_section(&linfo, "number", current.width.number, &line);
+    add_line_section(&linfo, "deleted", current.width.deleted, &line);
+    add_line_section(&linfo, "linebreak", current.width.linebreak, &line);
+    size_t user_section_width = strlen(linfo.buffer + linfo.offset);
+    add_line_section(&linfo, "user", user_section_width, &line);
+    // Broadcast the event
+    Dictionary event_data = {0, 0, 0};
+    PUT(event_data, "window", INTEGER_OBJ(current.window->handle));
+    PUT(event_data, "row", INTEGER_OBJ(row - W_WINROW(current.window)));
+    PUT(event_data, "line", ARRAY_OBJ(line));
+
+    if (linfo.attributes.size) {
+      PUT(event_data, "attributes", DICTIONARY_OBJ(linfo.attributes));
+      map_free(cstr_t, size_t)(linfo.added_attributes);
+    }
+
+    channel_send_event(0, "redraw:update_line", DICTIONARY_OBJ(event_data));
   }
 }
 
@@ -5642,8 +5721,7 @@ static void screen_start_highlight(int attr)
   attrentry_T *aep = NULL;
 
   screen_attr = attr;
-  if (full_screen
-      ) {
+  if (full_screen) {
     {
       if (attr > HL_ALL) {                              /* special HL attr. */
         if (t_colors > 1)
@@ -7106,11 +7184,11 @@ screen_ins_lines (
     }
   }
 
-  if (current_window) {
+  if (current.window) {
     // Broadcast the event
     Dictionary event_data = {0, 0, 0};
-    PUT(event_data, "window_id", INTEGER_OBJ(current_window->handle));
-    PUT(event_data, "row_index", INTEGER_OBJ(row - W_WINROW(current_window)));
+    PUT(event_data, "window", INTEGER_OBJ(current.window->handle));
+    PUT(event_data, "row", INTEGER_OBJ(row - W_WINROW(current.window)));
     PUT(event_data, "count", INTEGER_OBJ(line_count));
     channel_send_event(0, "redraw:insert_line", DICTIONARY_OBJ(event_data));
   }
@@ -7295,11 +7373,11 @@ screen_del_lines (
     }
   }
 
-  if (current_window) {
+  if (current.window) {
     // Broadcast the event
     Dictionary event_data = {0, 0, 0};
-    PUT(event_data, "window_id", INTEGER_OBJ(current_window->handle));
-    PUT(event_data, "row_index", INTEGER_OBJ(row - W_WINROW(current_window)));
+    PUT(event_data, "window", INTEGER_OBJ(current.window->handle));
+    PUT(event_data, "row", INTEGER_OBJ(row - W_WINROW(current.window)));
     PUT(event_data, "count", INTEGER_OBJ(line_count));
     channel_send_event(0, "redraw:delete_line", DICTIONARY_OBJ(event_data));
   }
@@ -7972,3 +8050,165 @@ int screen_screenrow(void)
   return screen_cur_row;
 }
 
+
+static void add_line_char(LineInfo *linfo, size_t screen_offset)
+{
+  size_t char_len;  // length in bytes of the utf8-encoded character
+  // Put text and attributes to the line data object for the next
+  // redraw event
+  if (enc_utf8 && ScreenLinesUC[screen_offset]) {
+    uint8_t *text = (uint8_t *)(linfo->buffer + linfo->offset);
+    char_len = utfc_char2bytes(screen_offset, text);
+  } else {
+    linfo->buffer[linfo->offset] = ScreenLines[screen_offset];
+    char_len = 1;
+  }
+
+  // Now parse the character attributes
+  int attr = ScreenAttrs[screen_offset];
+  attrentry_T *aep = NULL;
+
+  if (attr > HL_ALL) {
+    aep = syn_cterm_attr2entry(attr);
+    attr = aep ? aep->ae_attr : 0;
+  }
+
+  if (attr & HL_BOLD) {
+    add_line_attribute(linfo, "bold", char_len);
+  }
+
+  if (attr & HL_STANDOUT) {
+    add_line_attribute(linfo, "standout", char_len);
+  }
+
+  if (attr & HL_UNDERLINE) {
+    add_line_attribute(linfo, "underline", char_len);
+  }
+
+  if (attr & HL_UNDERCURL) {
+    add_line_attribute(linfo, "undercurl", char_len);
+  }
+
+  if (attr & HL_ITALIC) {
+    add_line_attribute(linfo, "italic", char_len);
+  }
+
+  if (attr & HL_INVERSE) {
+    add_line_attribute(linfo, "inverse", char_len);
+  }
+
+  if (aep && aep->ae_u.cterm.fg_color) {
+    // foreground color
+    if (!fg_colors) {
+      fg_colors = pmap_new(uint16_t)();
+    }
+
+    if (!pmap_has(uint16_t)(fg_colors, aep->ae_u.cterm.fg_color)) {
+      char *buf = xmalloc(16);
+      snprintf(buf, sizeof(buf), "fg:%" PRIu16, aep->ae_u.cterm.fg_color);
+      pmap_put(uint16_t)(fg_colors, aep->ae_u.cterm.fg_color, buf);
+    }
+    add_line_attribute(linfo,
+                       pmap_get(uint16_t)(fg_colors, aep->ae_u.cterm.fg_color),
+                       char_len);
+  }
+
+  if (aep && aep->ae_u.cterm.bg_color) {
+    // background color
+    if (!bg_colors){
+      bg_colors = pmap_new(uint16_t)();
+    }
+
+    if (!pmap_has(uint16_t)(bg_colors, aep->ae_u.cterm.bg_color)) {
+      char *buf = xmalloc(16);
+      snprintf(buf, sizeof(buf), "bg:%" PRIu16, aep->ae_u.cterm.bg_color);
+      pmap_put(uint16_t)(bg_colors, aep->ae_u.cterm.bg_color, buf);
+    }
+
+    add_line_attribute(linfo,
+                       pmap_get(uint16_t)(bg_colors, aep->ae_u.cterm.bg_color),
+                       char_len);
+  }
+
+  linfo->prev_offset = linfo->offset;
+  linfo->offset += char_len;
+}
+
+static void add_line_attribute(LineInfo *linfo, char *name, size_t char_len)
+{
+  // Attributes are arrays, where each element specifies where the attribute
+  // should be applied in the line. Elements can have one of two types:
+  // - Integer: A line index
+  // - [start, end) array: A range of line indexes
+  Array attribute;
+  size_t attr_idx;
+
+  if (!linfo->added_attributes) {
+    linfo->added_attributes = map_new(cstr_t, size_t)();
+  }
+
+  // previous, current and next offsets
+  int cur_offset = (int)linfo->offset;
+  int prev_offset = (int)linfo->prev_offset;
+  int next_offset = cur_offset + char_len;
+
+  if (!map_has(cstr_t, size_t)(linfo->added_attributes, name)) {
+    attr_idx = linfo->attributes.size;
+    attribute = (Array) {0, 0, 0};
+    // Add the current buffer offset
+    ADD(attribute, INTEGER_OBJ(cur_offset));
+    // Store the index of the attribute array
+    map_put(cstr_t, size_t)(linfo->added_attributes, name, attr_idx);
+    // and put the array into the attributes dictionary
+    PUT(linfo->attributes, name, ARRAY_OBJ(attribute));
+    return;
+  }
+  // index of the attribute in the linfo->attributes dictionary
+  attr_idx = map_get(cstr_t, size_t)(linfo->added_attributes, name);
+  // attribute array
+  attribute = linfo->attributes.items[attr_idx].value.data.array;
+  // last location where this attribute was applied
+  Object last_applied = attribute.items[attribute.size - 1];
+  // There are 3 possible cases:
+  if (last_applied.type == kObjectTypeInteger
+      && last_applied.data.integer == prev_offset) {
+    // The last location is the previous offset in the line buffer, so
+    // promote it to a range
+    last_applied.type = kObjectTypeArray;
+    last_applied.data.array = (Array){0, 0, 0};
+    ADD(last_applied.data.array, INTEGER_OBJ(prev_offset));
+    ADD(last_applied.data.array, INTEGER_OBJ(next_offset));
+    // update the attribute array with the range
+    attribute.items[attribute.size - 1] = last_applied;
+  } else if (last_applied.type == kObjectTypeArray
+      && last_applied.data.array.items[1].data.integer == cur_offset) {
+    // The last location is a range with the end boundary equal to the
+    // current offset, so all we need is increase the range by `char_len
+    last_applied.data.array.items[1].data.integer += char_len;
+    attribute.items[attribute.size - 1] = last_applied;
+  } else {
+    // In all other cases, the last location where the attribute was applied
+    // is not adjacent to the current location, so we need a new element in the
+    // attribute's array
+    ADD(attribute, INTEGER_OBJ(cur_offset));
+  }
+  // The attribute *items pointer might have changed by reallocs, to
+  // be safe we update the dictionary entry
+  linfo->attributes.items[attr_idx].value.data.array = attribute;
+}
+
+static void add_line_section(LineInfo *linfo,
+                             const char *section_type,
+                             size_t section_width,
+                             Array *target)
+{
+  if (section_width) {
+    Dictionary section = {0, 0, 0};
+    PUT(section, "type", STRING_OBJ(section_type));
+    PUT(section, "content", STRINGL_OBJ(linfo->buffer + linfo->offset,
+                                        section_width));
+    ADD(*target, DICTIONARY_OBJ(section));
+  }
+
+  linfo->offset += section_width;
+}
