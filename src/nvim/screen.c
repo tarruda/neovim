@@ -7959,6 +7959,14 @@ static void win_redr_ruler(win_T *wp, int always)
      */
     i = (int)STRLEN(buffer);
     get_rel_pos(wp, buffer + i + 1, RULER_BUF_LEN - i - 1);
+
+    Dictionary event_data = {0, 0, 0};
+    PUT(event_data, "id", INTEGER_OBJ(wp->handle));
+    PUT(event_data, "lnum", INTEGER_OBJ(wp->w_cursor.lnum));
+    PUT(event_data, "col", INTEGER_OBJ(empty_line ? 0: wp->w_cursor.col + 1));
+    PUT(event_data, "relpos", STRING_OBJ((char *)buffer + i + 1));
+    channel_send_event(0, "redraw:ruler", DICTIONARY_OBJ(event_data));
+
     o = i + vim_strsize(buffer + i + 1);
     if (wp->w_status_height == 0)       /* can't use last char of screen */
       ++o;
