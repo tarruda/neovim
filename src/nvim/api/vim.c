@@ -448,6 +448,14 @@ void vim_unsubscribe(uint64_t channel_id, String event)
   channel_unsubscribe(channel_id, e);
 }
 
+/// Forces a complete redraw. This can be used by UI clients to get a full
+/// state of the screen when connecting through redraw:* events
+void vim_request_screen(uint64_t channel_id)
+{
+  send_layout_event(channel_id);
+  update_screen(CLEAR);
+}
+
 /// Writes a message to vim output or error buffer. The string is split
 /// and flushed after each newline. Incomplete lines are kept for writing
 /// later.
