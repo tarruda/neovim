@@ -4881,11 +4881,16 @@ void win_redr_status(win_T *wp)
     /* redraw custom status line */
     redraw_custom_statusline(wp);
   } else {
-    fillchar = fillchar_status(&attr, wp == curwin);
-
+    // Put the buffer name in NameBuff
     get_trans_bufname(wp->w_buffer);
+    fillchar = fillchar_status(&attr, wp == curwin);
     p = NameBuff;
     len = (int)STRLEN(p);
+
+    // Prepare the event data
+    Dictionary event_data = {0, 0, 0};
+    PUT(event_data, "id", INTEGER_OBJ(wp->handle));
+    PUT(event_data, "name", STRING_OBJ((char *)NameBuff));
 
     if (wp->w_buffer->b_help
         || wp->w_p_pvw
@@ -4893,21 +4898,28 @@ void win_redr_status(win_T *wp)
         || wp->w_buffer->b_p_ro)
       *(p + len++) = ' ';
     if (wp->w_buffer->b_help) {
+      PUT(event_data, "help", BOOL_OBJ(true));
       STRCPY(p + len, _("[Help]"));
       len += (int)STRLEN(p + len);
     }
     if (wp->w_p_pvw) {
+      PUT(event_data, "preview", BOOL_OBJ(true));
       STRCPY(p + len, _("[Preview]"));
       len += (int)STRLEN(p + len);
     }
     if (bufIsChanged(wp->w_buffer)) {
+      PUT(event_data, "modified", BOOL_OBJ(true));
       STRCPY(p + len, "[+]");
       len += 3;
     }
     if (wp->w_buffer->b_p_ro) {
+      PUT(event_data, "readonly", BOOL_OBJ(true));
       STRCPY(p + len, _("[RO]"));
       len += 4;
     }
+
+    // Broadcast the event
+    channel_send_event(0, "redraw:status_line", DICTIONARY_OBJ(event_data));
 
     this_ru_col = ru_col - (Columns - W_WIDTH(wp));
     if (this_ru_col < (W_WIDTH(wp) + 1) / 2)
