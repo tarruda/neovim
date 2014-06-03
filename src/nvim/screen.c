@@ -88,6 +88,7 @@
 
 #include <string.h>
 
+#include "nvim/api/private/helpers.h"
 #include "nvim/vim.h"
 #include "nvim/arabic.h"
 #include "nvim/screen.h"
@@ -128,6 +129,7 @@
 #include "nvim/undo.h"
 #include "nvim/version.h"
 #include "nvim/window.h"
+#include "nvim/os/channel.h"
 
 #define MB_FILLER_CHAR '<'  /* character used when a double-width character
                              * doesn't fit. */
@@ -7519,6 +7521,9 @@ static void draw_tabline(void)
           (char_u *)"", OPT_FREE, SID_ERROR);
     called_emsg |= save_called_emsg;
   } else {
+    // Array containing the tab state for the redraw event
+    Array event_data = {0, 0, 0};
+
     for (tp = first_tabpage; tp != NULL; tp = tp->tp_next)
       ++tabcount;
 
@@ -7531,14 +7536,21 @@ static void draw_tabline(void)
     scol = 0;
     for (tp = first_tabpage; tp != NULL && col < Columns - 4;
          tp = tp->tp_next) {
+      // Data about a single tab
+      Dictionary tab_data = {0, 0, 0};
+      PUT(tab_data, "id", INTEGER_OBJ(tp->handle));
+
       scol = col;
 
-      if (tp->tp_topframe == topframe)
+      bool selected = tp->tp_topframe == topframe;
+      PUT(tab_data, "selected", BOOL_OBJ(selected));
+
+      if (selected)
         attr = attr_sel;
       if (use_sep_chars && col > 0)
         screen_putchar('|', 0, col++, attr);
 
-      if (tp->tp_topframe != topframe)
+      if (!selected)
         attr = attr_nosel;
 
       screen_putchar(' ', 0, col++, attr);
@@ -7571,11 +7583,15 @@ static void draw_tabline(void)
         screen_putchar(' ', 0, col++, attr);
       }
 
+      PUT(tab_data, "window_count", INTEGER_OBJ(wincount));
+      PUT(tab_data, "modified", BOOL_OBJ(modified));
+
       room = scol - col + tabwidth - 1;
       if (room > 0) {
         /* Get buffer name in NameBuff[] */
         get_trans_bufname(cwp->w_buffer);
         shorten_dir(NameBuff);
+        PUT(tab_data, "text", STRING_OBJ((char *)NameBuff));
         len = vim_strsize(NameBuff);
         p = NameBuff;
         if (has_mbyte)
@@ -7600,7 +7616,11 @@ static void draw_tabline(void)
       ++tabcount;
       while (scol < col)
         TabPageIdxs[scol++] = tabcount;
+
+      ADD(event_data, DICTIONARY_OBJ(tab_data));
     }
+
+    channel_send_event(0, "redraw:tabs", ARRAY_OBJ(event_data));
 
     if (use_sep_chars)
       c = '_';
