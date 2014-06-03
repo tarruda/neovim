@@ -6808,6 +6808,11 @@ void setcursor(void)
                                && vim_isprintc(gchar_cursor())) ? 2 :
                               1)) :
           curwin->w_wcol));
+
+    Dictionary event_data = {0, 0, 0};
+    PUT(event_data, "row", INTEGER_OBJ(curwin->w_cursor.lnum - 1));
+    PUT(event_data, "col", INTEGER_OBJ(curwin->w_cursor.col));
+    channel_send_event(0, "redraw:cursor", DICTIONARY_OBJ(event_data));
   }
 }
 
