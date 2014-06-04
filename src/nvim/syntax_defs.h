@@ -72,6 +72,11 @@ typedef struct attr_entry {
       uint16_t fg_color;                /* foreground color number */
       uint16_t bg_color;                /* background color number */
     } cterm;
+    struct {
+      int64_t fg_color;  // foreground color handle
+      int64_t bg_color;  // background color handle
+      int64_t sp_color;  // special color handle
+    } gui;
   } ae_u;
 } attrentry_T;
 

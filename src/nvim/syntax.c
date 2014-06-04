@@ -41,6 +41,9 @@
 #include "nvim/ui.h"
 #include "nvim/os/os.h"
 
+// number for invalid gui color
+#define INVALCOLOR INT64_MIN
+
 /*
  * Structure that stores information about a highlight group.
  * The ID of a highlight group is also called group ID.  It is the index in
@@ -60,6 +63,10 @@ struct hl_group {
   int sg_cterm_fg;              /* terminal fg color number + 1 */
   int sg_cterm_bg;              /* terminal bg color number + 1 */
   int sg_cterm_attr;            /* Screen attr for color term mode */
+  int64_t sg_gui_fg;            /* GUI foreground color */
+  int64_t sg_gui_bg;            /* GUI background color */
+  int64_t sg_gui_sp;            /* GUI special color */
+  int sg_gui_attr;              /* Screen attr for GUI mode */
   /* Store the sp color name for the GUI or synIDattr() */
   int sg_gui;                   /* "gui=" highlighting attributes */
   char_u      *sg_gui_fg_name;  /* GUI foreground color name */
@@ -6754,6 +6761,9 @@ static garray_T cterm_attr_table = {0, 0, 0, 0, NULL};
 
 #define CTERM_ATTR_ENTRY(idx) ((attrentry_T *)cterm_attr_table.ga_data)[idx]
 
+static garray_T gui_attr_table = {0, 0, 0, 0, NULL};
+
+#define GUI_ATTR_ENTRY(idx) ((attrentry_T *)gui_attr_table.ga_data)[idx]
 
 /*
  * Return the attr number for a set of colors and font.
@@ -6831,7 +6841,11 @@ static int get_attr_entry(garray_T *table, attrentry_T *aep)
   taep = &(((attrentry_T *)table->ga_data)[table->ga_len]);
   memset(taep, 0, sizeof(attrentry_T));
   taep->ae_attr = aep->ae_attr;
-  if (table == &term_attr_table) {
+  if (table == &gui_attr_table) {
+    taep->ae_u.gui.fg_color = aep->ae_u.gui.fg_color;
+    taep->ae_u.gui.bg_color = aep->ae_u.gui.bg_color;
+    taep->ae_u.gui.sp_color = aep->ae_u.gui.sp_color;
+  } else if (table == &term_attr_table) {
     if (aep->ae_u.term.start == NULL)
       taep->ae_u.term.start = NULL;
     else
@@ -6885,6 +6899,40 @@ int hl_combine_attr(int char_attr, int prim_attr)
   if (char_attr <= HL_ALL && prim_attr <= HL_ALL)
     return char_attr | prim_attr;
 
+#if 0
+  if (false) {
+    if (char_attr > HL_ALL) {
+      char_aep = syn_gui_attr2entry(char_attr);
+    } if (char_aep != NULL) {
+      new_en = *char_aep;
+    } else {
+      memset(&new_en, 0, sizeof(new_en));
+      new_en.ae_u.gui.fg_color = INVALCOLOR;
+      new_en.ae_u.gui.bg_color = INVALCOLOR;
+      new_en.ae_u.gui.sp_color = INVALCOLOR;
+      if (char_attr <= HL_ALL) {
+        new_en.ae_attr = char_attr;
+      }
+    }
+
+    if (prim_attr <= HL_ALL) {
+      new_en.ae_attr |= prim_attr;
+    } else {
+      spell_aep = syn_gui_attr2entry(prim_attr);
+      if (spell_aep != NULL) {
+        new_en.ae_attr |= spell_aep->ae_attr;
+        if (spell_aep->ae_u.gui.fg_color != INVALCOLOR)
+          new_en.ae_u.gui.fg_color = spell_aep->ae_u.gui.fg_color;
+        if (spell_aep->ae_u.gui.bg_color != INVALCOLOR)
+          new_en.ae_u.gui.bg_color = spell_aep->ae_u.gui.bg_color;
+        if (spell_aep->ae_u.gui.sp_color != INVALCOLOR)
+          new_en.ae_u.gui.sp_color = spell_aep->ae_u.gui.sp_color;
+      }
+    }
+    return get_attr_entry(&gui_attr_table, &new_en);
+  }
+#endif
+
   if (t_colors > 1) {
     if (char_attr > HL_ALL)
       char_aep = syn_cterm_attr2entry(char_attr);
@@ -6936,6 +6984,16 @@ int hl_combine_attr(int char_attr, int prim_attr)
   return get_attr_entry(&term_attr_table, &new_en);
 }
 
+attrentry_T *syn_gui_attr2entry(int attr)
+{
+  attr -= ATTR_OFF;
+
+  if (attr >= gui_attr_table.ga_len) {
+    return NULL;
+  }
+
+  return &(GUI_ATTR_ENTRY(attr));
+}
 
 /*
  * Get the highlight attributes (HL_BOLD etc.) from an attribute nr.
@@ -7197,6 +7255,21 @@ set_hl_attr (
   /* The "Normal" group doesn't need an attribute number */
   if (sgp->sg_name_u != NULL && STRCMP(sgp->sg_name_u, "NORMAL") == 0)
     return;
+
+  /*
+   * For the GUI mode: If there are other than "normal" highlighting
+   * attributes, need to allocate an attr number.
+   */
+  if (sgp->sg_gui_fg == INVALCOLOR && sgp->sg_gui_bg == INVALCOLOR
+      && sgp->sg_gui_sp == INVALCOLOR) {
+    sgp->sg_gui_attr = sgp->sg_gui;
+  } else {
+    at_en.ae_attr = sgp->sg_gui;
+    at_en.ae_u.gui.fg_color = sgp->sg_gui_fg;
+    at_en.ae_u.gui.bg_color = sgp->sg_gui_bg;
+    at_en.ae_u.gui.sp_color = sgp->sg_gui_sp;
+    sgp->sg_gui_attr = get_attr_entry(&gui_attr_table, &at_en);
+  }
 
   /*
    * For the term mode: If there are other than "normal" highlighting
