@@ -51,6 +51,19 @@ void vim_command(String str, Error *err)
   try_end(err);
 }
 
+String vim_command_output(String str, Error *err)
+{
+  do_cmdline_cmd((char_u *)"redir => v:command_output");
+  vim_command(str, err);
+  do_cmdline_cmd((char_u *)"redir END");
+
+  if (err->set) {
+    return (String) STRING_INIT;
+  }
+
+  return cstr_to_string((char *)get_vim_var_str(VV_COMMAND_OUTPUT));
+}
+
 /// Evaluates the expression str using the vim internal expression
 /// evaluator (see |expression|).
 /// Dictionaries and lists are recursively expanded.
