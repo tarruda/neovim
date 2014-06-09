@@ -223,6 +223,51 @@ void redraw_ruler(uint64_t channel_id, win_T *window, bool empty, char *relpos)
   channel_send_event(0, "redraw:ruler", DICTIONARY_OBJ(event_data));
 }
 
+void redraw_layout(uint64_t channel_id)
+{
+  if (false) {
+    return;
+  }
+
+  Dictionary event_data = build_layout_event(topframe);
+  channel_send_event(channel_id, "redraw:layout", DICTIONARY_OBJ(event_data));
+  update_screen(CLEAR);
+}
+
+void redraw_cursor(uint64_t channel_id)
+{
+  if (false) {
+    return;
+  }
+
+  Dictionary event_data = {0, 0, 0};
+  PUT(event_data, "row", INTEGER_OBJ(curwin->w_cursor.lnum - 1));
+  PUT(event_data, "col", INTEGER_OBJ(curwin->w_cursor.col));
+  channel_send_event(0, "redraw:cursor", DICTIONARY_OBJ(event_data));
+}
+
+void redraw_foreground_color(uint64_t channel_id)
+{
+  if (false) {
+    return;
+  }
+
+  Dictionary event_data = {0, 0, 0};
+  PUT(event_data, "color", STRING_OBJ(cterm_normal_gui_fg));
+  channel_send_event(0, "redraw:foreground_color", DICTIONARY_OBJ(event_data));
+}
+
+void redraw_background_color(uint64_t channel_id)
+{
+  if (false) {
+    return;
+  }
+
+  Dictionary event_data = {0, 0, 0};
+  PUT(event_data, "color", STRING_OBJ(cterm_normal_gui_bg));
+  channel_send_event(0, "redraw:background_color", DICTIONARY_OBJ(event_data));
+}
+
 static void add_line_char(LineData *ldata, size_t screen_offset)
 {
   size_t char_len;  // length in bytes of the utf8-encoded character
