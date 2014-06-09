@@ -101,6 +101,31 @@ void redraw_delete_line(uint64_t channel_id, win_T *window, int row, int count)
                      DICTIONARY_OBJ(event_data));
 }
 
+void redraw_win_end(uint64_t channel_id,
+                    win_T *window,
+                    char marker,
+                    char fill,
+                    int row,
+                    int endrow)
+{
+  if (false) {
+    return;
+  }
+
+  char marker_str[] = {marker, NUL};
+  char fill_str[] = {fill, NUL};
+
+  Dictionary event_data = {0, 0, 0};
+  PUT(event_data, "window_id", INTEGER_OBJ(window->handle));
+  PUT(event_data, "marker", STRING_OBJ((const char *)&marker_str));
+  PUT(event_data, "fill", STRING_OBJ((const char *)&fill_str));
+  PUT(event_data, "row", INTEGER_OBJ(row - W_WINROW(window)));
+  PUT(event_data, "endrow", INTEGER_OBJ(endrow - W_WINROW(window)));
+  channel_send_event(channel_id,
+                     "redraw:win_end",
+                     DICTIONARY_OBJ(event_data));
+}
+
 void redraw_update_line(uint64_t channel_id,
                         win_T *window,
                         UpdateLineWidths *widths,
