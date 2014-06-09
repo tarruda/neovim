@@ -232,6 +232,8 @@ void redraw_layout(uint64_t channel_id)
   Dictionary event_data = build_layout_event(topframe);
   channel_send_event(channel_id, "redraw:layout", DICTIONARY_OBJ(event_data));
   update_screen(CLEAR);
+  redraw_foreground_color(channel_id);
+  redraw_background_color(channel_id);
 }
 
 void redraw_cursor(uint64_t channel_id)
@@ -416,3 +418,29 @@ static void add_line_section(LineData *ldata,
 
   ldata->offset += section_width;
 }
+
+static Dictionary build_layout_event(frame_T *frame)
+{
+  Dictionary rv = {0, 0, 0};
+
+  if (frame->fr_layout == FR_LEAF) {
+    PUT(rv, "window_id", INTEGER_OBJ(frame->fr_win->handle));
+    PUT(rv, "width", INTEGER_OBJ(frame->fr_win->w_width));
+    PUT(rv, "height", INTEGER_OBJ(frame->fr_win->w_height));
+    PUT(rv, "type", STRING_OBJ("leaf"));
+  } else {
+    Array children = {0, 0, 0};
+
+    for (frame_T *f = frame->fr_child; f != NULL; f = f->fr_next) {
+      ADD(children, DICTIONARY_OBJ(build_layout_event(f)));
+    }
+
+    PUT(rv, "children", ARRAY_OBJ(children));
+    PUT(rv, "width", INTEGER_OBJ(frame->fr_width));
+    PUT(rv, "height", INTEGER_OBJ(frame->fr_height));
+    PUT(rv, "type", STRING_OBJ(frame->fr_layout == FR_ROW ? "row": "column"));
+  }
+
+  return rv;
+}
+
