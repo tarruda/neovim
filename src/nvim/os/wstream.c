@@ -92,6 +92,7 @@ bool wstream_write(WStream *wstream, WBuffer *buffer)
   assert(!wstream->freed);
 
   if (wstream->curmem > wstream->maxmem) {
+    buffer->cb(buffer->data);
     return false;
   }
 
