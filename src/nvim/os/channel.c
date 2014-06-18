@@ -5,6 +5,7 @@
 
 #include "nvim/api/private/helpers.h"
 #include "nvim/os/channel.h"
+#include "nvim/os/event.h"
 #include "nvim/os/rstream.h"
 #include "nvim/os/rstream_defs.h"
 #include "nvim/os/wstream.h"
@@ -16,6 +17,12 @@
 #include "nvim/memory.h"
 #include "nvim/map.h"
 #include "nvim/lib/kvec.h"
+
+typedef struct {
+  uint64_t request_id;
+  bool errored;
+  Object result;
+} ChannelCallFrame;
 
 typedef struct {
   uint64_t id;
@@ -31,6 +38,8 @@ typedef struct {
       uv_stream_t *uv;
     } streams;
   } data;
+  uint64_t next_request_id;
+  kvec_t(ChannelCallFrame *) call_stack;
 } Channel;
 
 static uint64_t next_id = 1;
@@ -134,6 +143,56 @@ bool channel_send_event(uint64_t id, char *name, Object arg)
   return true;
 }
 
+Object channel_call_method(uint64_t id, char *name, Object arg, bool *errored)
+{
+  Channel *channel = NULL;
+
+  if (!(channel = pmap_get(uint64_t)(channels, id))) {
+    msgpack_rpc_free_object(arg);
+    return NIL;
+  }
+
+  uint64_t request_id = channel->next_request_id++;
+  // Send the msgpack-rpc request
+  channel_write(channel, serialize_message(0, request_id, name, arg));
+
+  if (!kv_size(channel->call_stack)) {
+    // This is the first frame, we must disable event deferral for this 
+    // channel because we won't be returning until the client sends a
+    // response
+    if (channel->is_job) {
+      job_set_defer(channel->data.job, false);
+    } else {
+      rstream_set_defer(channel->data.streams.read, false);
+    }
+  }
+
+  // Push the frame
+  ChannelCallFrame frame = {request_id, false, NIL};
+  kv_push(ChannelCallFrame *, channel->call_stack, &frame);
+  
+  // Save the stack size
+  size_t stack_size = kv_size(channel->call_stack);
+
+  // Loop until the call stack returns to it's previous size(the frame is
+  // popped by `parse_msgpack`)
+  do {
+    event_poll(-1);
+  } while (stack_size <= kv_size(channel->call_stack));
+
+  if (!kv_size(channel->call_stack)) {
+    // Popped last frame, restore event deferral
+    if (channel->is_job) {
+      job_set_defer(channel->data.job, true);
+    } else {
+      rstream_set_defer(channel->data.streams.read, true);
+    }
+  }
+
+  *errored = frame.errored;
+  return frame.result;
+}
+
 /// Subscribes to event broadcasts
 ///
 /// @param id The channel id
@@ -210,6 +269,16 @@ static void parse_msgpack(RStream *rstream, void *data, bool eof)
   // Deserialize everything we can.
   while ((result = msgpack_rpc_unpack(channel->unpacker, &unpacked))
       == kUnpackResultOk) {
+    if (is_rpc_response(&unpacked.data)) {
+      if (is_valid_rpc_response(&unpacked.data, channel)) {
+        call_stack_pop(&unpacked.data, channel);
+      } else {
+        call_stack_unwind(channel);
+      }
+      // Bail out of this event loop iteration
+      return;
+    }
+
     // Each object is a new msgpack-rpc request and requires an empty response
     msgpack_packer response;
     msgpack_packer_init(&response, channel->sbuffer, msgpack_sbuffer_write);
@@ -378,7 +447,55 @@ static Channel *register_channel()
   rv->sbuffer = msgpack_sbuffer_new();
   rv->id = next_id++;
   rv->subscribed_events = pmap_new(cstr_t)();
+  rv->next_request_id = 1;
+  kv_init(rv->call_stack);
   pmap_put(uint64_t)(channels, rv->id, rv);
   return rv;
 }
 
+static bool is_rpc_response(msgpack_object *obj)
+{
+  return obj->type == MSGPACK_OBJECT_ARRAY
+      && obj->via.array.size == 4
+      && obj->via.array.ptr[0].type == MSGPACK_OBJECT_POSITIVE_INTEGER
+      && obj->via.array.ptr[0].via.u64 == 1
+      && obj->via.array.ptr[1].type == MSGPACK_OBJECT_POSITIVE_INTEGER;
+}
+
+static bool is_valid_rpc_response(msgpack_object *obj, Channel *channel)
+{
+  uint64_t response_id = obj->via.array.ptr[1].via.u64;
+  // Must be equal to the frame at the stack's bottom
+  return response_id == kv_A(channel->call_stack,
+                             kv_size(channel->call_stack) - 1)->request_id;
+}
+
+static void call_stack_pop(msgpack_object *obj, Channel *channel)
+{
+  ChannelCallFrame *frame = kv_pop(channel->call_stack);
+  frame->errored = obj->via.array.ptr[2].type != MSGPACK_OBJECT_NIL;
+
+  if (frame->errored) {
+    msgpack_rpc_to_object(&obj->via.array.ptr[2], &frame->result);
+  } else {
+    msgpack_rpc_to_object(&obj->via.array.ptr[3], &frame->result);
+  }
+}
+
+static void call_stack_unwind(Channel *channel)
+{
+  for (size_t i = 0; i < kv_size(channel->call_stack); i++) {
+    ChannelCallFrame *frame = kv_A(channel->call_stack, i);
+    frame->errored = true;
+    char msg[] = "Wrong response id. "
+                 "Ensure the rpc call is synchronized on the client";
+    frame->result = (Object) {
+      .type = kObjectTypeString,
+        .data.string = (String) {
+          .data = msg,
+          .size = sizeof(msg) - 1
+        }
+    };
+  }
+
+}
