@@ -215,12 +215,11 @@ static void parse_msgpack(RStream *rstream, void *data, bool eof)
     msgpack_packer_init(&response, channel->sbuffer, msgpack_sbuffer_write);
     // Perform the call
     msgpack_rpc_call(channel->id, &unpacked.data, &response);
-    wstream_write(channel->data.streams.write,
-                  wstream_new_buffer(xmemdup(channel->sbuffer->data,
-                                             channel->sbuffer->size),
-                                     channel->sbuffer->size,
-                                     free));
-
+    WBuffer *buffer = wstream_new_buffer(xmemdup(channel->sbuffer->data,
+                                                 channel->sbuffer->size),
+                                         channel->sbuffer->size,
+                                         free);
+    channel_write(channel, buffer);
     // Clear the buffer for future calls
     msgpack_sbuffer_clear(channel->sbuffer);
   }
@@ -240,19 +239,27 @@ static void parse_msgpack(RStream *rstream, void *data, bool eof)
                       "This error can also happen when deserializing "
                       "an object with high level of nesting",
                       &response);
-    wstream_write(channel->data.streams.write,
-                  wstream_new_buffer(xmemdup(channel->sbuffer->data,
-                                             channel->sbuffer->size),
-                                     channel->sbuffer->size,
-                                     free));
+    channel_write(channel, wstream_new_buffer(xmemdup(channel->sbuffer->data,
+                                                      channel->sbuffer->size),
+                                              channel->sbuffer->size,
+                                              free));
     // Clear the buffer for future calls
     msgpack_sbuffer_clear(channel->sbuffer);
   }
 }
 
+static void channel_write(Channel *channel, WBuffer *buffer)
+{
+  if (channel->is_job) {
+    job_write(channel->data.job, buffer);
+  } else {
+    wstream_write(channel->data.streams.write, buffer);
+  }
+}
+
 static void send_event(Channel *channel, char *type, Object data)
 {
-  wstream_write(channel->data.streams.write, serialize_event(type, data));
+  channel_write(channel, serialize_event(type, data));
 }
 
 static void broadcast_event(char *type, Object data)
@@ -275,7 +282,7 @@ static void broadcast_event(char *type, Object data)
   WBuffer *buffer = serialize_event(type, data);
 
   for (size_t i = 0; i < kv_size(subscribed); i++) {
-    wstream_write(kv_A(subscribed, i)->data.streams.write, buffer);
+    channel_write(kv_A(subscribed, i), buffer);
   }
 
 end:
