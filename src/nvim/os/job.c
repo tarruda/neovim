@@ -313,10 +313,8 @@ static void job_exit_callback(Job *job)
   // this one
   table[job->id - 1] = NULL;
 
-  if (job->exit_cb) {
-    // Invoke the exit callback
-    job->exit_cb(job, job->data);
-  }
+  // Invoke the exit callback to let the caller free the data
+  job->exit_cb(job, job->data);
 
   // Free the job resources
   free_job(job);
@@ -408,7 +406,6 @@ static void close_cb(uv_handle_t *handle)
     rstream_free(job->err);
     wstream_free(job->in);
     shell_free_argv(job->proc_opts.args);
-    free(job->data);
     free(job);
   }
 }

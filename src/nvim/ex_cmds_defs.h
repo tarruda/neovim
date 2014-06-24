@@ -68,6 +68,8 @@
 typedef struct exarg exarg_T;
 #endif
 
+#include "nvim/os/script_host.h"
+
 /*
  * This array maps ex command names to command codes.
  * The order in which command names are listed below is significant --
@@ -729,6 +731,12 @@ enum CMD_index
       RANGE|WHOLEFOLD|BANG|REGSTR|TRLBAR|ZEROR|CMDWIN|MODIFY),
   EX(CMD_pwd,             "pwd",          ex_pwd,
       TRLBAR|CMDWIN),
+  EX(CMD_python,          "python",       script_host_ex_python,
+      RANGE|EXTRA|NEEDARG|CMDWIN),
+  EX(CMD_pydo,            "pydo",         script_host_ex_pydo,
+      RANGE|DFLALL|EXTRA|NEEDARG|CMDWIN),
+  EX(CMD_pyfile,          "pyfile",       script_host_ex_pyfile,
+      RANGE|FILE1|NEEDARG|CMDWIN),
   EX(CMD_quit,            "quit",         ex_quit,
       BANG|TRLBAR|CMDWIN),
   EX(CMD_quitall,         "quitall",      ex_quit_all,
