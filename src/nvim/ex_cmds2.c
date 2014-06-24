@@ -45,6 +45,7 @@
 #include "nvim/window.h"
 #include "nvim/os/os.h"
 #include "nvim/os/shell.h"
+#include "nvim/os/provider.h"
 
 
 /* Growarray to store info about already sourced scripts.
@@ -953,6 +954,22 @@ void ex_profile(exarg_T *eap)
     ex_breakadd(eap);
   }
 }
+
+void ex_python(exarg_T *eap)
+{
+  provider_execute(kPythonProvider, eap);
+}
+
+void ex_pyfile(exarg_T *eap)
+{
+  provider_execute_file(kPythonProvider, eap);
+}
+
+void ex_pydo(exarg_T *eap)
+{
+  provider_do_range(kPythonProvider, eap);
+}
+
 
 /* Command line expansion for :profile. */
 static enum {

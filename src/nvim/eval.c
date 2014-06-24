@@ -72,6 +72,7 @@
 #include "nvim/os/channel.h"
 #include "nvim/api/private/helpers.h"
 #include "nvim/os/msgpack_rpc_helpers.h"
+#include "nvim/os/provider.h"
 
 #define DICT_MAXNEST 100        /* maximum nesting of lists and dicts */
 
@@ -6435,6 +6436,7 @@ static struct fst {
   {"prevnonblank",    1, 1, f_prevnonblank},
   {"printf",          2, 19, f_printf},
   {"pumvisible",      0, 0, f_pumvisible},
+  {"pyeval",          1, 1, f_pyeval},
   {"range",           1, 3, f_range},
   {"readfile",        1, 3, f_readfile},
   {"reltime",         0, 2, f_reltime},
@@ -9788,6 +9790,10 @@ static void f_has(typval_T *argvars, typval_T *rettv)
     }
   }
 
+  if (n == FALSE && provider_has((char *)name)) {
+    n = TRUE;
+  }
+
   rettv->vval.v_number = n;
 }
 
@@ -11431,7 +11437,13 @@ static void f_pumvisible(typval_T *argvars, typval_T *rettv)
     rettv->vval.v_number = 1;
 }
 
-
+/*
+ * "pyeval()" function
+ */
+void f_pyeval(typval_T *argvars, typval_T *rettv)
+{
+  provider_eval(kPythonProvider, argvars, rettv);
+}
 
 /*
  * "range()" function
@@ -19051,6 +19063,7 @@ static void on_job_stderr(RStream *rstream, void *data, bool eof)
 
 static void on_job_exit(Job *job, void *data)
 {
+  free(data);
   apply_job_autocmds(job, data, "exit", NULL);
 }
 
