@@ -31,6 +31,12 @@ static struct feature {
   size_t name_length;
   uint64_t channel_id;
 } features[] = {
+  FEATURE("python",
+          "python -c \"import neovim; neovim.start_host()\"",
+          "python_execute",
+          "python_execute_file",
+          "python_do_range",
+          "python_eval")
 };
 
 static Map(cstr_t, uint64_t) *registered_providers = NULL;
