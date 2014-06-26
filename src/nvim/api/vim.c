@@ -10,6 +10,7 @@
 #include "nvim/api/private/defs.h"
 #include "nvim/api/buffer.h"
 #include "nvim/os/channel.h"
+#include "nvim/os/provider.h"
 #include "nvim/vim.h"
 #include "nvim/buffer.h"
 #include "nvim/window.h"
@@ -501,6 +502,15 @@ void vim_unsubscribe(uint64_t channel_id, String event)
   memcpy(e, event.data, length);
   e[length] = NUL;
   channel_unsubscribe(channel_id, e);
+}
+
+/// Registers the channel as the provider for `name`
+///
+/// @param channel_id The channel id
+/// @param name The provider name
+void vim_register_provider(uint64_t channel_id, String name)
+{
+  provider_register(name, channel_id);
 }
 
 /// Writes a message to vim output or error buffer. The string is split
