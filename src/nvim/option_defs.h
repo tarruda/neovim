@@ -584,6 +584,7 @@ static char *(p_ttym_values[]) =
 EXTERN char_u   *p_udir;        /* 'undodir' */
 EXTERN long p_ul;               /* 'undolevels' */
 EXTERN long p_ur;               /* 'undoreload' */
+EXTERN int p_unc;               /* 'unnamedclip' */
 EXTERN long p_uc;               /* 'updatecount' */
 EXTERN long p_ut;               /* 'updatetime' */
 EXTERN char_u   *p_fcs;         /* 'fillchar' */
