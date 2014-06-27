@@ -187,7 +187,7 @@ elif [ "$TRAVIS_BUILD_TYPE" = "api/python" ]; then
 	set_environment /opt/neovim-deps
 	$MAKE_CMD
 	sudo apt-get install expect valgrind
-	git clone --depth=1 -b master git://github.com/neovim/python-client
+	git clone --depth=1 -b plugin-host git://github.com/tarruda/python-client
 	cd python-client
   sudo pip install .
   sudo pip install nose
