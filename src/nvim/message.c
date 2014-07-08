@@ -2069,7 +2069,7 @@ static int do_more_prompt(int typed_char)
     toscroll = 0;
     switch (c) {
     case K_EVENT:
-      event_process(true);
+      event_process();
       break;
     case BS:                    /* scroll one line back */
     case K_BS:
