@@ -92,8 +92,8 @@ output:write([[
 #include "nvim/map.h"
 #include "nvim/log.h"
 #include "nvim/vim.h"
-#include "nvim/os/msgpack_rpc.h"
-#include "nvim/os/msgpack_rpc_helpers.h"
+#include "nvim/msgpack_rpc/helpers.h"
+#include "nvim/msgpack_rpc/defs.h"
 #include "nvim/api/private/helpers.h"
 #include "nvim/api/private/defs.h"
 ]])

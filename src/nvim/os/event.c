@@ -7,8 +7,8 @@
 
 #include "nvim/os/event.h"
 #include "nvim/os/input.h"
-#include "nvim/os/channel.h"
-#include "nvim/os/server.h"
+#include "nvim/msgpack_rpc/channel.h"
+#include "nvim/msgpack_rpc/server.h"
 #include "nvim/os/provider.h"
 #include "nvim/os/signal.h"
 #include "nvim/os/rstream.h"
