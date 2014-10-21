@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <setjmp.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -21,32 +22,31 @@
 
 #include "nvim/lib/klist.h"
 
-// event will be cleaned up after it gets processed
-#define _destroy_event(x)  // do nothing
-KLIST_INIT(Event, Event, _destroy_event)
-
-typedef struct {
-  bool timed_out;
-  int ms;
-  uv_timer_t *timer;
-} TimerData;
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "os/event.c.generated.h"
 #endif
+
+// event will be cleaned up after it gets processed
+#define _destroy_event(x)  // do nothing
+KLIST_INIT(Event, Event, _destroy_event)
 static klist_t(Event) *pending_events;
+// dummy variable to block the compiler from optimizing out the 'gap' array
+// from `prepare_event_loop`
+void *stack_pin;
+// main/loop threads(stack context)
+static jmp_buf main_context, loop_context;
 
 void event_init(void)
 {
+  // Initialize the event queue
+  pending_events = kl_init(Event);
   // early msgpack-rpc initialization
   msgpack_rpc_init_method_table();
   msgpack_rpc_helpers_init();
-  // Initialize the event queues
-  pending_events = kl_init(Event);
   // Initialize input events
   input_init();
-  // Timer to wake the event loop if a timeout argument is passed to
-  // `event_poll`
+  input_start();
   // Signals
   signal_init();
   // Jobs
@@ -56,6 +56,10 @@ void event_init(void)
   server_init();
   // Providers
   provider_init();
+  if (!setjmp(main_context)) {
+    // Setup stack space for libuv event loop
+    prepare_event_loop();
+  }
 }
 
 void event_teardown(void)
@@ -68,48 +72,27 @@ void event_teardown(void)
 // Wait for some event
 void event_poll(int ms)
 {
-  uv_run_mode run_mode = UV_RUN_ONCE;
-
-  static int recursive = 0;
-
-  if (!(recursive++)) {
-    // Only needs to start the libuv handle the first time we enter here
-    input_start();
-  }
-
   uv_timer_t timer;
-  uv_prepare_t timer_prepare;
-  TimerData timer_data = {.ms = ms, .timed_out = false, .timer = &timer};
+  uv_idle_t idle;
 
   if (ms > 0) {
     uv_timer_init(uv_default_loop(), &timer);
-    // This prepare handle that actually starts the timer
-    uv_prepare_init(uv_default_loop(), &timer_prepare);
-    // Timeout passed as argument to the timer
-    timer.data = &timer_data;
-    // We only start the timer after the loop is running, for that we
-    // use a prepare handle(pass the interval as data to it)
-    timer_prepare.data = &timer_data;
-    uv_prepare_start(&timer_prepare, timer_prepare_cb);
+    uv_timer_start(&timer, timer_cb, (uint64_t)ms, 0);
   } else if (ms == 0) {
-    // For ms == 0, we need to do a non-blocking event poll by
-    // setting the run mode to UV_RUN_NOWAIT.
-    run_mode = UV_RUN_NOWAIT;
+    uv_idle_init(uv_default_loop(), &idle);
+    uv_idle_start(&idle, idle_cb);
   }
 
-  loop(run_mode);
-
-  if (!(--recursive)) {
-    // Again, only stop when we leave the top-level invocation
-    input_stop();
-  }
+  jump(main_context, loop_context);
 
   if (ms > 0) {
-    // Ensure the timer-related handles are closed and run the event loop
-    // once more to let libuv perform it's cleanup
+    uv_timer_stop(&timer);
     uv_close((uv_handle_t *)&timer, NULL);
-    uv_close((uv_handle_t *)&timer_prepare, NULL);
-    loop(UV_RUN_NOWAIT);
+    jump(main_context, loop_context);
+  } else if (ms == 0) {
+    uv_idle_stop(&idle);
+    uv_close((uv_handle_t *)&idle, NULL);
+    jump(main_context, loop_context);
   }
 }
 
@@ -134,24 +117,50 @@ void event_process(void)
   }
 }
 
-// Set a flag in the `event_poll` loop for signaling of a timeout
-static void timer_cb(uv_timer_t *handle)
+static void check_cb(uv_check_t *handle)
 {
-  TimerData *data = handle->data;
-  data->timed_out = true;
+  uv_prepare_t *prepare = handle->data;
+  uv_prepare_init(uv_default_loop(), prepare);
+  uv_prepare_start(prepare, prepare_cb);
+  uv_check_stop(handle);
+  uv_close((uv_handle_t *)handle, NULL);
 }
 
-static void timer_prepare_cb(uv_prepare_t *handle)
+static void prepare_cb(uv_prepare_t *handle)
 {
-  TimerData *data = handle->data;
-  assert(data->ms > 0);
-  uv_timer_start(data->timer, timer_cb, (uint32_t)data->ms, 0);
-  uv_prepare_stop(handle);
+  jump(loop_context, main_context);
 }
 
-static void loop(uv_run_mode run_mode)
+static void prepare_event_loop(void)
 {
+  char gap[0xfffff];
+  stack_pin = gap;
+  jump(loop_context, main_context);
+  loop();
+  jump(loop_context, main_context);
+  abort();  // Should never get here
+}
+
+static void jump(jmp_buf from, jmp_buf to)
+{
+  if (!setjmp(from)) {
+    longjmp(to, 1);
+  }
+}
+
+static void loop(void)
+{
+  uv_prepare_t prepare;
+  uv_check_t check;
+  uv_check_init(uv_default_loop(), &check);
+  uv_check_start(&check, check_cb);
+  check.data = &prepare;
+
   DLOG("Enter event loop");
-  uv_run(uv_default_loop(), run_mode);
+  uv_run(uv_default_loop(), UV_RUN_DEFAULT);
   DLOG("Exit event loop");
 }
+
+// Dummy callbacks(can't pass NULL as callback of libuv handles)
+static void timer_cb(uv_timer_t *handle) { }
+static void idle_cb(uv_idle_t *handle) { }
