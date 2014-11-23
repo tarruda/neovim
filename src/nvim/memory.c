@@ -1,5 +1,6 @@
  // Various routines dealing with allocation and deallocation of memory.
 
+#include <stdio.h>
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -13,7 +14,7 @@
 #include "nvim/memory.h"
 #include "nvim/message.h"
 #include "nvim/misc1.h"
-#include "nvim/term.h"
+#include "nvim/ui.h"
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "memory.c.generated.h"
@@ -86,9 +87,7 @@ void *xmalloc(size_t size)
 {
   void *ret = try_malloc(size);
   if (!ret) {
-    OUT_STR(e_outofmem);
-    out_char('\n');
-    preserve_exit();
+    MEMORY_ERROR(e_outofmem);
   }
   return ret;
 }
@@ -109,9 +108,7 @@ void *xcalloc(size_t count, size_t size)
     try_to_free_memory();
     ret = calloc(allocated_count, allocated_size);
     if (!ret) {
-      OUT_STR(e_outofmem);
-      out_char('\n');
-      preserve_exit();
+      MEMORY_ERROR(e_outofmem);
     }
   }
   return ret;
@@ -131,9 +128,7 @@ void *xrealloc(void *ptr, size_t size)
     try_to_free_memory();
     ret = realloc(ptr, allocated_size);
     if (!ret) {
-      OUT_STR(e_outofmem);
-      out_char('\n');
-      preserve_exit();
+      MEMORY_ERROR(e_outofmem);
     }
   }
   return ret;
@@ -149,8 +144,7 @@ void *xmallocz(size_t size)
 {
   size_t total_size = size + 1;
   if (total_size < size) {
-    OUT_STR(_("Vim: Data too large to fit into virtual memory space\n"));
-    preserve_exit();
+    MEMORY_ERROR(_("Vim: Data too large to fit into virtual memory space\n"));
   }
 
   void *ret = xmalloc(total_size);
@@ -331,9 +325,7 @@ char *xstrdup(const char *str)
     try_to_free_memory();
     ret = strdup(str);
     if (!ret) {
-      OUT_STR(e_outofmem);
-      out_char('\n');
-      preserve_exit();
+      MEMORY_ERROR(e_outofmem);
     }
   }
 

@@ -46,7 +46,7 @@
 #include "nvim/regexp.h"
 #include "nvim/screen.h"
 #include "nvim/strings.h"
-#include "nvim/term.h"
+#include "nvim/ui.h"
 #include "nvim/undo.h"
 #include "nvim/os/event.h"
 #include "nvim/os/input.h"
@@ -1544,22 +1544,6 @@ int vpeekc(void)
 }
 
 /*
- * Like vpeekc(), but don't allow mapping.  Do allow checking for terminal
- * codes.
- */
-int vpeekc_nomap(void)
-{
-  int c;
-
-  ++no_mapping;
-  ++allow_keys;
-  c = vpeekc();
-  --no_mapping;
-  --allow_keys;
-  return c;
-}
-
-/*
  * Check if any character is available, also half an escape sequence.
  * Trick: when no typeahead found, but there is something in the typeahead
  * buffer, it must be an ESC that is recognized as the start of a key code.
@@ -1945,25 +1929,11 @@ static int vgetorpeek(int advance)
                     || (p_remap && typebuf.tb_noremap[
                           typebuf.tb_off] == RM_YES))
                 && !timedout) {
-              keylen = check_termcode(max_mlen + 1,
-                  NULL, 0, NULL);
-
               /* If no termcode matched but 'pastetoggle'
                * matched partially it's like an incomplete key
                * sequence. */
-              if (keylen == 0 && save_keylen == KEYLEN_PART_KEY)
+              if (save_keylen == KEYLEN_PART_KEY)
                 keylen = KEYLEN_PART_KEY;
-
-              /*
-               * When getting a partial match, but the last
-               * characters were not typed, don't wait for a
-               * typed character to complete the termcode.
-               * This helps a lot when a ":normal" command ends
-               * in an ESC.
-               */
-              if (keylen < 0
-                  && typebuf.tb_len == typebuf.tb_maplen)
-                keylen = 0;
             } else
               keylen = 0;
             if (keylen == 0) {                  /* no matching terminal code */
@@ -2197,7 +2167,7 @@ static int vgetorpeek(int advance)
             }
           }
           setcursor();
-          out_flush();
+          ui_flush();
           new_wcol = curwin->w_wcol;
           new_wrow = curwin->w_wrow;
           curwin->w_wcol = old_wcol;
@@ -2416,8 +2386,8 @@ inchar (
   int script_char;
 
   if (wait_time == -1L || wait_time > 100L) {  /* flush output before waiting */
-    cursor_on();
-    out_flush();
+    ui_cursor_on();
+    ui_flush();
   }
 
   /*
@@ -2486,7 +2456,7 @@ inchar (
      * Always flush the output characters when getting input characters
      * from the user.
      */
-    out_flush();
+    ui_flush();
 
     /*
      * Fill up to a third of the buffer, because each character may be
@@ -2513,31 +2483,7 @@ fix_input_buffer (
     int script                     /* TRUE when reading from a script */
 )
 {
-  int i;
-  char_u      *p = buf;
-
-  /*
-   * Two characters are special: NUL and K_SPECIAL.
-   * When compiled With the GUI CSI is also special.
-   * Replace	     NUL by K_SPECIAL KS_ZERO	 KE_FILLER
-   * Replace K_SPECIAL by K_SPECIAL KS_SPECIAL KE_FILLER
-   * Replace       CSI by K_SPECIAL KS_EXTRA   KE_CSI
-   * Don't replace K_SPECIAL when reading a script file.
-   */
-  for (i = len; --i >= 0; ++p) {
-    if (p[0] == NUL
-        || (p[0] == K_SPECIAL
-          && !script
-          && (i < 2 || p[1] != KS_EXTRA || is_user_input(p[2])))) {
-      memmove(p + 3, p + 1, (size_t)i);
-      p[2] = K_THIRD(p[0]);
-      p[1] = K_SECOND(p[0]);
-      p[0] = K_SPECIAL;
-      p += 2;
-      len += 2;
-    }
-  }
-  *p = NUL;             /* add trailing NUL */
+  buf[len] = NUL;
   return len;
 }
 
@@ -3273,7 +3219,7 @@ showmap (
   }
   if (p_verbose > 0)
     last_set_msg(mp->m_script_ID);
-  out_flush();                          /* show one line at a time */
+  ui_flush();                          /* show one line at a time */
 }
 
 /*
@@ -3744,11 +3690,6 @@ eval_map_expr (
   return res;
 }
 
-static bool is_user_input(int k)
-{
-  return k != (int)KE_EVENT && k != (int)KE_CURSORHOLD;
-}
-
 /*
  * Copy "p" to allocated memory, escaping K_SPECIAL and CSI so that the result
  * can be put in the typeahead buffer.
@@ -4101,75 +4042,6 @@ int put_escstr(FILE *fd, char_u *strstart, int what)
 }
 
 /*
- * Check all mappings for the presence of special key codes.
- * Used after ":set term=xxx".
- */
-void check_map_keycodes(void)
-{
-  mapblock_T  *mp;
-  char_u      *p;
-  int i;
-  char_u buf[3];
-  char_u      *save_name;
-  int abbr;
-  int hash;
-  buf_T       *bp;
-
-  validate_maphash();
-  save_name = sourcing_name;
-  sourcing_name = (char_u *)"mappings";   /* avoids giving error messages */
-
-  /* This this once for each buffer, and then once for global
-   * mappings/abbreviations with bp == NULL */
-  for (bp = firstbuf;; bp = bp->b_next) {
-    /*
-     * Do the loop twice: Once for mappings, once for abbreviations.
-     * Then loop over all map hash lists.
-     */
-    for (abbr = 0; abbr <= 1; ++abbr)
-      for (hash = 0; hash < 256; ++hash) {
-        if (abbr) {
-          if (hash)                 /* there is only one abbr list */
-            break;
-          if (bp != NULL)
-            mp = bp->b_first_abbr;
-          else
-            mp = first_abbr;
-        } else {
-          if (bp != NULL)
-            mp = bp->b_maphash[hash];
-          else
-            mp = maphash[hash];
-        }
-        for (; mp != NULL; mp = mp->m_next) {
-          for (i = 0; i <= 1; ++i) {            /* do this twice */
-            if (i == 0)
-              p = mp->m_keys;                   /* once for the "from" part */
-            else
-              p = mp->m_str;                    /* and once for the "to" part */
-            while (*p) {
-              if (*p == K_SPECIAL) {
-                ++p;
-                if (*p < 128) {                 /* for "normal" tcap entries */
-                  buf[0] = p[0];
-                  buf[1] = p[1];
-                  buf[2] = NUL;
-                  (void)add_termcap_entry(buf, FALSE);
-                }
-                ++p;
-              }
-              ++p;
-            }
-          }
-        }
-      }
-    if (bp == NULL)
-      break;
-  }
-  sourcing_name = save_name;
-}
-
-/*
  * Check the string "keys" against the lhs of all mappings.
  * Return pointer to rhs of mapping (mapblock->m_str).
  * NULL when no mapping found.
@@ -4252,4 +4124,67 @@ void add_map(char_u *map, int mode)
   (void)do_map(0, s, mode, FALSE);
   free(s);
   p_cpo = cpo_save;
+}
+
+/*
+ * Translate an internal mapping/abbreviation representation into the
+ * corresponding external one recognized by :map/:abbrev commands;
+ * respects the current B/k/< settings of 'cpoption'.
+ *
+ * This function is called when expanding mappings/abbreviations on the
+ * command-line, and for building the "Ambiguous mapping..." error message.
+ *
+ * It uses a growarray to build the translation string since the
+ * latter can be wider than the original description. The caller has to
+ * free the string afterwards.
+ *
+ * Returns NULL when there is a problem.
+ */
+static char_u * translate_mapping (
+    char_u *str,
+    int expmap              /* TRUE when expanding mappings on command-line */
+)
+{
+  garray_T ga;
+  ga_init(&ga, 1, 40);
+
+  int cpo_bslash = (vim_strchr(p_cpo, CPO_BSLASH) != NULL);
+  int cpo_special = (vim_strchr(p_cpo, CPO_SPECI) != NULL);
+
+  for (; *str; ++str) {
+    int c = *str;
+    if (c == K_SPECIAL && str[1] != NUL && str[2] != NUL) {
+      int modifiers = 0;
+      if (str[1] == KS_MODIFIER) {
+        str++;
+        modifiers = *++str;
+        c = *++str;
+      }
+      if (c == K_SPECIAL && str[1] != NUL && str[2] != NUL) {
+        if (expmap && cpo_special) {
+          ga_clear(&ga);
+          return NULL;
+        }
+        c = TO_SPECIAL(str[1], str[2]);
+        if (c == K_ZERO)                /* display <Nul> as ^@ */
+          c = NUL;
+        str += 2;
+      }
+      if (IS_SPECIAL(c) || modifiers) {         /* special key */
+        if (expmap && cpo_special) {
+          ga_clear(&ga);
+          return NULL;
+        }
+        ga_concat(&ga, get_special_key_name(c, modifiers));
+        continue;         /* for (str) */
+      }
+    }
+    if (c == ' ' || c == '\t' || c == Ctrl_J || c == Ctrl_V
+        || (c == '<' && !cpo_special) || (c == '\\' && !cpo_bslash))
+      ga_append(&ga, cpo_bslash ? Ctrl_V : '\\');
+    if (c)
+      ga_append(&ga, c);
+  }
+  ga_append(&ga, NUL);
+  return (char_u *)(ga.ga_data);
 }

@@ -5,6 +5,7 @@
 #include <uv.h>
 
 #include "nvim/os/os.h"
+#include "nvim/ui.h"
 #include "nvim/memory.h"
 #include "nvim/message.h"
 

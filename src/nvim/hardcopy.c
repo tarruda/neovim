@@ -39,7 +39,7 @@
 #include "nvim/screen.h"
 #include "nvim/strings.h"
 #include "nvim/syntax.h"
-#include "nvim/term.h"
+#include "nvim/ui.h"
 #include "nvim/tempfile.h"
 #include "nvim/os/os.h"
 #include "nvim/os/input.h"
@@ -349,10 +349,7 @@ static long_u darken_rgb(long_u rgb)
 
 static long_u prt_get_term_color(int colorindex)
 {
-  /* TODO: Should check for xterm with 88 or 256 colors. */
-  if (t_colors > 8)
-    return cterm_color_16[colorindex % 16];
-  return cterm_color_8[colorindex % 8];
+  return cterm_color_16[colorindex % 16];
 }
 
 static void prt_get_attr(int hl_id, prt_text_attr_T *pattr, int modec)
@@ -376,7 +373,7 @@ static void prt_get_attr(int hl_id, prt_text_attr_T *pattr, int modec)
     else
       colorindex = atoi(color);
 
-    if (colorindex >= 0 && colorindex < t_colors)
+    if (colorindex >= 0)
       fg_color = prt_get_term_color(colorindex);
     else
       fg_color = PRCOLOR_BLACK;
@@ -574,7 +571,7 @@ static void prt_message(char_u *s)
 {
   screen_fill((int)Rows - 1, (int)Rows, 0, (int)Columns, ' ', ' ', 0);
   screen_puts(s, (int)Rows - 1, 0, hl_attr(HLF_R));
-  out_flush();
+  ui_flush();
 }
 
 void ex_hardcopy(exarg_T *eap)
@@ -618,10 +615,7 @@ void ex_hardcopy(exarg_T *eap)
           eap->forceit) == FAIL)
     return;
 
-  if (t_colors > 1)
-    settings.modec = 'c';
-  else
-    settings.modec = 't';
+  settings.modec = 'c';
 
   if (!syntax_present(curwin))
     settings.do_syntax = FALSE;

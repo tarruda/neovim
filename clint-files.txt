@@ -57,3 +57,5 @@ src/nvim/profile.c
 src/nvim/profile.h
 src/nvim/tempfile.c
 src/nvim/tempfile.h
+src/nvim/ui.c
+src/nvim/ui.h

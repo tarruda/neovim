@@ -21,7 +21,6 @@
 #include "nvim/message.h"
 #include "nvim/eval.h"
 #include "nvim/misc2.h"
-#include "nvim/term.h"
 #include "nvim/getchar.h"
 #include "nvim/os/input.h"
 
@@ -99,6 +98,12 @@ void vim_feedkeys(String keys, String mode, Boolean escape_csi)
 Integer vim_input(String keys)
 {
   return (Integer)input_enqueue(keys);
+}
+
+/// Resize vim screen to `width`(columns) and `height`(rows)
+void vim_resize(Integer width, Integer height)
+{
+  screen_resize((int)width, (int)height);
 }
 
 /// Replace any terminal codes with the internal representation

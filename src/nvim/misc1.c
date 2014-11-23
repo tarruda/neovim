@@ -42,6 +42,7 @@
 #include "nvim/misc2.h"
 #include "nvim/garray.h"
 #include "nvim/move.h"
+#include "nvim/mouse.h"
 #include "nvim/option.h"
 #include "nvim/os_unix.h"
 #include "nvim/path.h"
@@ -51,7 +52,6 @@
 #include "nvim/search.h"
 #include "nvim/strings.h"
 #include "nvim/tag.h"
-#include "nvim/term.h"
 #include "nvim/tempfile.h"
 #include "nvim/ui.h"
 #include "nvim/undo.h"
@@ -1841,7 +1841,7 @@ void changed(void)
        * message.  Since we could be anywhere, call wait_return() now,
        * and don't let the emsg() set msg_scroll. */
       if (need_wait_return && emsg_silent == 0) {
-        out_flush();
+        ui_flush();
         os_delay(2000L, true);
         wait_return(TRUE);
         msg_scroll = save_msg_scroll;
@@ -2262,7 +2262,7 @@ change_warning (
     msg_clr_eos();
     (void)msg_end();
     if (msg_silent == 0 && !silent_mode) {
-      out_flush();
+      ui_flush();
       os_delay(1000L, true);       /* give the user time to think about it */
     }
     curbuf->b_did_warn = true;
@@ -2286,8 +2286,6 @@ int ask_yesno(char_u *str, int direct)
   int r = ' ';
   int save_State = State;
 
-  if (exiting)                  /* put terminal in raw mode for this question */
-    settmode(TMODE_RAW);
   ++no_wait_return;
 #ifdef USE_ON_FLY_SCROLL
   dont_scroll = TRUE;           /* disallow scrolling here */
@@ -2307,7 +2305,7 @@ int ask_yesno(char_u *str, int direct)
     if (r == Ctrl_C || r == ESC)
       r = 'n';
     msg_putchar(r);         /* show what you typed */
-    out_flush();
+    ui_flush();
   }
   --no_wait_return;
   State = save_State;
@@ -2366,8 +2364,8 @@ int get_keystroke(void)
 
   mapped_ctrl_c = FALSE;        /* mappings are not used here */
   for (;; ) {
-    cursor_on();
-    out_flush();
+    ui_cursor_on();
+    ui_flush();
 
     /* Leave some room for check_termcode() to insert a key code into (max
      * 5 chars plus NUL).  And fix_input_buffer() can triple the number of
@@ -2393,11 +2391,6 @@ int get_keystroke(void)
       waited = 0;
     } else if (len > 0)
       ++waited;             /* keep track of the waiting time */
-
-    /* Incomplete termcode and not timed out yet: get more characters */
-    if ((n = check_termcode(1, buf, buflen, &len)) < 0
-        && (!p_ttimeout || waited * 100L < (p_ttm < 0 ? p_tm : p_ttm)))
-      continue;
 
     if (n == KEYLEN_REMOVED) {    /* key code removed */
       if (must_redraw != 0 && !need_wait_return && (State & CMDLINE) == 0) {
@@ -2604,11 +2597,10 @@ void beep_flush(void)
 void vim_beep(void)
 {
   if (emsg_silent == 0) {
-    if (p_vb
-        ) {
-      out_str(T_VB);
+    if (p_vb) {
+      ui_visual_bell();
     } else {
-      out_char(BELL);
+      ui_bell();
     }
 
     /* When 'verbose' is set and we are sourcing a script or executing a
@@ -3300,28 +3292,6 @@ home_replace_save (
   return dst;
 }
 
-void prepare_to_exit(void)
-{
-#if defined(SIGHUP) && defined(SIG_IGN)
-  /* Ignore SIGHUP, because a dropped connection causes a read error, which
-   * makes Vim exit and then handling SIGHUP causes various reentrance
-   * problems. */
-  signal(SIGHUP, SIG_IGN);
-#endif
-
-  {
-    windgoto((int)Rows - 1, 0);
-
-    /*
-     * Switch terminal mode back now, so messages end up on the "normal"
-     * screen (if there are two screens).
-     */
-    settmode(TMODE_COOK);
-    stoptermcap();
-    out_flush();
-  }
-}
-
 /*
  * Preserve files and exit.
  * When called IObuff must contain a message.
@@ -3336,20 +3306,17 @@ void preserve_exit(void)
   }
 
   really_exiting = TRUE;
-
-  prepare_to_exit();
-
-  out_str(IObuff);
+  ui_print(IObuff);
   screen_start();                   /* don't know where cursor is now */
-  out_flush();
+  ui_flush();
 
   ml_close_notmod();                /* close all not-modified buffers */
 
   FOR_ALL_BUFFERS(buf) {
     if (buf->b_ml.ml_mfp != NULL && buf->b_ml.ml_mfp->mf_fname != NULL) {
-      OUT_STR("Vim: preserving files...\n");
+      ui_print((uint8_t *)_("Vim: preserving files...\n"));
       screen_start();               /* don't know where cursor is now */
-      out_flush();
+      ui_flush();
       ml_sync_all(FALSE, FALSE);        /* preserve all swap files */
       break;
     }
@@ -3357,7 +3324,7 @@ void preserve_exit(void)
 
   ml_close_all(FALSE);              /* close all memfiles, without deleting */
 
-  OUT_STR("Vim: Finished.\n");
+  ui_print((uint8_t *)_("Vim: Finished.\n"));
 
   getout(1);
 }

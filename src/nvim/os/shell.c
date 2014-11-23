@@ -17,7 +17,6 @@
 #include "nvim/vim.h"
 #include "nvim/message.h"
 #include "nvim/memory.h"
-#include "nvim/term.h"
 #include "nvim/misc2.h"
 #include "nvim/screen.h"
 #include "nvim/memline.h"
@@ -104,13 +103,9 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_arg)
 {
   DynamicBuffer input = DYNAMIC_BUFFER_INIT;
   char *output = NULL, **output_ptr = NULL;
-  int current_state = State, old_mode = cur_tmode;
+  int current_state = State;
   bool forward_output = true;
-  out_flush();
-
-  if (opts & kShellOptCooked) {
-    settmode(TMODE_COOK);
-  }
+  ui_flush();
 
   // While the child is running, ignore terminating signals
   signal_reject_deadly();
@@ -155,10 +150,6 @@ int os_call_shell(char_u *cmd, ShellOpts opts, char_u *extra_arg)
     msg_putchar('\n');
   }
 
-  if (old_mode == TMODE_RAW) {
-    // restore mode
-    settmode(TMODE_RAW);
-  }
   State = current_state;
   signal_accept_deadly();
 
@@ -305,7 +296,7 @@ static void out_data_cb(RStream *rstream, void *data, bool eof)
 {
   RBuffer *rbuffer = rstream_buffer(rstream);
   size_t len = rbuffer_pending(rbuffer);
-  ui_write((char_u *)rbuffer_read_ptr(rbuffer), (int)len);
+  // ui_puts(rbuffer_read_ptr(rbuffer), len);
   rbuffer_consumed(rbuffer, len);
 }
 

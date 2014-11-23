@@ -61,7 +61,6 @@
 #include "nvim/strings.h"
 #include "nvim/syntax.h"
 #include "nvim/tag.h"
-#include "nvim/term.h"
 #include "nvim/ui.h"
 #include "nvim/undo.h"
 #include "nvim/version.h"
@@ -4338,7 +4337,7 @@ static void uc_list(char_u *name, size_t name_len)
       msg_outtrans_special(cmd->uc_rep, FALSE);
       if (p_verbose > 0)
         last_set_msg(cmd->uc_scriptID);
-      out_flush();
+      ui_flush();
       os_breakcheck();
       if (got_int)
         break;
@@ -5107,7 +5106,6 @@ static void ex_highlight(exarg_T *eap)
 void not_exiting(void)
 {
   exiting = FALSE;
-  settmode(TMODE_RAW);
 }
 
 /*
@@ -5394,23 +5392,10 @@ static void ex_stop(exarg_T *eap)
   /*
    * Disallow suspending for "rvim".
    */
-  if (!check_restricted()
-      ) {
+  if (!check_restricted()) {
     if (!eap->forceit)
       autowrite_all();
-    windgoto((int)Rows - 1, 0);
-    out_char('\n');
-    out_flush();
-    stoptermcap();
-    out_flush();                /* needed for SUN to restore xterm buffer */
-    mch_restore_title(3);       /* restore window titles */
-    ui_suspend();               /* call machine specific function */
-    maketitle();
-    resettitle();               /* force updating the title */
-    starttermcap();
-    scroll_start();             /* scroll screen before redrawing */
-    redraw_later_clear();
-    shell_resized();            /* may have resized window */
+    ui_suspend();
   }
 }
 
@@ -5468,7 +5453,7 @@ static void ex_print(exarg_T *eap)
           eap->cmdidx == CMD_list || (eap->flags & EXFLAG_LIST));
       if (++eap->line1 > eap->line2)
         break;
-      out_flush();                  /* show one line at a time */
+      ui_flush();                  /* show one line at a time */
     }
     setpcmark();
     /* put cursor at last line */
@@ -5843,7 +5828,7 @@ static void ex_tabs(exarg_T *eap)
     msg_putchar('\n');
     vim_snprintf((char *)IObuff, IOSIZE, _("Tab page %d"), tabcount++);
     msg_outtrans_attr(IObuff, hl_attr(HLF_T));
-    out_flush();            /* output one line at a time */
+    ui_flush();            /* output one line at a time */
     os_breakcheck();
 
     FOR_ALL_WINDOWS_IN_TAB(wp, tp) {
@@ -5862,23 +5847,9 @@ static void ex_tabs(exarg_T *eap)
         home_replace(wp->w_buffer, wp->w_buffer->b_fname,
             IObuff, IOSIZE, TRUE);
       msg_outtrans(IObuff);
-      out_flush();                  /* output one line at a time */
+      ui_flush();                  /* output one line at a time */
       os_breakcheck();
     }
-  }
-}
-
-
-/*
- * ":mode":
- * If no argument given, get the screen size and redraw.
- */
-static void ex_mode(exarg_T *eap)
-{
-  if (*eap->arg == NUL) {
-    shell_resized();
-  } else {
-    EMSG(_(e_screenmode));
   }
 }
 
@@ -5994,7 +5965,6 @@ do_exedit (
 {
   int n;
   int need_hide;
-  int exmode_was = exmode_active;
 
   /*
    * ":vi" command ends Ex mode.
@@ -6014,8 +5984,6 @@ do_exedit (
           eap->nextcmd = NULL;
         }
 
-        if (exmode_was != EXMODE_VIM)
-          settmode(TMODE_RAW);
         RedrawingDisabled = 0;
         no_wait_return = 0;
         need_wait_return = FALSE;
@@ -6407,8 +6375,8 @@ void do_sleep(long msec)
 {
   long done;
 
-  cursor_on();
-  out_flush();
+  ui_cursor_on();
+  ui_flush();
   for (done = 0; !got_int && done < msec; done += 1000L) {
     os_delay(msec - done > 1000L ? 1000L : msec - done, true);
     os_breakcheck();
@@ -6445,10 +6413,11 @@ static void ex_winsize(exarg_T *eap)
   arg = skipwhite(arg);
   p = arg;
   h = getdigits(&arg);
-  if (*p != NUL && *arg == NUL)
-    set_shellsize(w, h, TRUE);
-  else
+  if (*p != NUL && *arg == NUL) {
+    screen_resize(w, h);
+  } else {
     EMSG(_("E465: :winsize requires two number arguments"));
+  }
 }
 
 static void ex_wincmd(exarg_T *eap)
@@ -6480,35 +6449,6 @@ static void ex_wincmd(exarg_T *eap)
     postponed_split_tab = 0;
   }
 }
-
-#if defined(FEAT_GUI) || defined(UNIX) || defined(MSWIN)
-/*
- * ":winpos".
- */
-static void ex_winpos(exarg_T *eap)
-{
-  int x, y;
-  char_u      *arg = eap->arg;
-  char_u      *p;
-
-  if (*arg == NUL) {
-    EMSG(_("E188: Obtaining window position not implemented for this platform"));
-  } else {
-    x = getdigits(&arg);
-    arg = skipwhite(arg);
-    p = arg;
-    y = getdigits(&arg);
-    if (*p == NUL || *arg != NUL) {
-      EMSG(_("E466: :winpos requires two number arguments"));
-      return;
-    }
-# ifdef HAVE_TGETENT
-    if (*T_CWP)
-      term_set_winpos(x, y);
-# endif
-  }
-}
-#endif
 
 /*
  * Handle command that work like operators: ":delete", ":yank", ":>" and ":<".
@@ -6869,7 +6809,7 @@ static void ex_redraw(exarg_T *eap)
   /* No need to wait after an intentional redraw. */
   need_wait_return = FALSE;
 
-  out_flush();
+  ui_flush();
 }
 
 /*
@@ -6891,7 +6831,7 @@ static void ex_redrawstatus(exarg_T *eap)
       0);
   RedrawingDisabled = r;
   p_lz = p;
-  out_flush();
+  ui_flush();
 }
 
 static void close_redir(void)

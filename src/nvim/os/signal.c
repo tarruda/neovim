@@ -10,7 +10,6 @@
 #include "nvim/globals.h"
 #include "nvim/memline.h"
 #include "nvim/eval.h"
-#include "nvim/term.h"
 #include "nvim/memory.h"
 #include "nvim/misc1.h"
 #include "nvim/misc2.h"
@@ -21,7 +20,7 @@
 KMEMPOOL_INIT(SignalEventPool, int, SignalEventFreer)
 kmempool_t(SignalEventPool) *signal_event_pool = NULL;
 
-static uv_signal_t sint, spipe, shup, squit, sterm, swinch;
+static uv_signal_t sint, spipe, shup, squit, sterm;
 #ifdef SIGPWR
 static uv_signal_t spwr;
 #endif
@@ -39,7 +38,6 @@ void signal_init(void)
   uv_signal_init(uv_default_loop(), &shup);
   uv_signal_init(uv_default_loop(), &squit);
   uv_signal_init(uv_default_loop(), &sterm);
-  uv_signal_init(uv_default_loop(), &swinch);
   uv_signal_start(&sint, signal_cb, SIGINT);
   uv_signal_start(&spipe, signal_cb, SIGPIPE);
   uv_signal_start(&shup, signal_cb, SIGHUP);
@@ -47,7 +45,6 @@ void signal_init(void)
   uv_signal_start(&sterm, signal_cb, SIGTERM);
   if (!embedded_mode) {
     // TODO(tarruda): There must be an API function for resizing window
-    uv_signal_start(&swinch, signal_cb, SIGWINCH);
   }
 #ifdef SIGPWR
   uv_signal_init(uv_default_loop(), &spwr);
@@ -63,7 +60,6 @@ void signal_teardown(void)
   uv_close((uv_handle_t *)&shup, NULL);
   uv_close((uv_handle_t *)&squit, NULL);
   uv_close((uv_handle_t *)&sterm, NULL);
-  uv_close((uv_handle_t *)&swinch, NULL);
 #ifdef SIGPWR
   uv_close((uv_handle_t *)&spwr, NULL);
 #endif
@@ -76,7 +72,6 @@ void signal_stop(void)
   uv_signal_stop(&shup);
   uv_signal_stop(&squit);
   uv_signal_stop(&sterm);
-  uv_signal_stop(&swinch);
 #ifdef SIGPWR
   uv_signal_stop(&spwr);
 #endif
@@ -103,8 +98,6 @@ static char * signal_name(int signum)
 #endif
     case SIGPIPE:
       return "SIGPIPE";
-    case SIGWINCH:
-      return "SIGWINCH";
     case SIGTERM:
       return "SIGTERM";
     case SIGQUIT:
@@ -161,9 +154,6 @@ static void on_signal_event(Event event)
 #endif
     case SIGPIPE:
       // Ignore
-      break;
-    case SIGWINCH:
-      shell_resized();
       break;
     case SIGTERM:
     case SIGQUIT:

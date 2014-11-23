@@ -48,7 +48,6 @@
 #include "nvim/regexp.h"
 #include "nvim/screen.h"
 #include "nvim/strings.h"
-#include "nvim/term.h"
 #include "nvim/undo.h"
 #include "nvim/window.h"
 #include "nvim/profile.h"
@@ -153,12 +152,6 @@ void do_debug(char_u *cmd)
 #define CMD_FINISH      4
 #define CMD_QUIT        5
 #define CMD_INTERRUPT   6
-
-
-  /* Make sure we are in raw mode and start termcap mode.  Might have side
-   * effects... */
-  settmode(TMODE_RAW);
-  starttermcap();
 
   ++RedrawingDisabled;          /* don't redisplay the window */
   ++no_wait_return;             /* don't wait for return */

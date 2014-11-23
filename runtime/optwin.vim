@@ -514,18 +514,6 @@ endif
 
 
 call <SID>Header("terminal")
-call append("$", "term\tname of the used terminal")
-call <SID>OptionG("term", &term)
-call append("$", "ttytype\talias for 'term'")
-call <SID>OptionG("tty", &tty)
-call append("$", "ttybuiltin\tcheck built-in termcaps first")
-call <SID>BinOptionG("tbi", &tbi)
-call append("$", "ttyfast\tterminal connection is fast")
-call <SID>BinOptionG("tf", &tf)
-call append("$", "weirdinvert\tterminal that requires extra redrawing")
-call <SID>BinOptionG("wiv", &wiv)
-call append("$", "esckeys\trecognize keys that start with <Esc> in Insert mode")
-call <SID>BinOptionG("ek", &ek)
 call append("$", "scrolljump\tminimal number of lines to scroll at a time")
 call append("$", " \tset sj=" . &sj)
 call append("$", "ttyscroll\tmaximum number of lines to use scrolling instead of redrawing")

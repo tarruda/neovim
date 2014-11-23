@@ -61,7 +61,8 @@
 #include "nvim/syntax.h"
 #include "nvim/tag.h"
 #include "nvim/tempfile.h"
-#include "nvim/term.h"
+#include "nvim/ui.h"
+#include "nvim/mouse.h"
 #include "nvim/undo.h"
 #include "nvim/window.h"
 #include "nvim/os/os.h"
@@ -1064,7 +1065,7 @@ do_filter (
   cmd_buf = make_filter_cmd(cmd, itmp, otmp);
 
   windgoto((int)Rows - 1, 0);
-  cursor_on();
+  ui_cursor_on();
 
   /*
    * When not redirecting the output the command can write anything to the
@@ -1231,9 +1232,6 @@ do_shell (
    * avoid having to type return below.
    */
   msg_putchar('\r');                    /* put cursor at start of line */
-  if (!autocmd_busy) {
-    stoptermcap();
-  }
   msg_putchar('\n');                    /* may shift screen one line up */
 
   /* warning message before calling the shell */
@@ -1249,9 +1247,8 @@ do_shell (
 
   /* This windgoto is required for when the '\n' resulted in a "delete line
    * 1" command to the terminal. */
-  if (!swapping_screen())
-    windgoto(msg_row, msg_col);
-  cursor_on();
+  windgoto(msg_row, msg_col);
+  ui_cursor_on();
   (void)call_shell(cmd, kShellOptCooked | flags, NULL);
   did_check_timestamps = FALSE;
   need_check_timestamps = TRUE;
@@ -1260,10 +1257,8 @@ do_shell (
    * put the message cursor at the end of the screen, avoids wait_return()
    * to overwrite the text that the external command showed
    */
-  if (!swapping_screen()) {
-    msg_row = Rows - 1;
-    msg_col = 0;
-  }
+  msg_row = Rows - 1;
+  msg_col = 0;
 
   if (autocmd_busy) {
     if (msg_silent == 0)
@@ -1286,13 +1281,10 @@ do_shell (
        * want to wait for "hit return to continue".
        */
       save_nwr = no_wait_return;
-      if (swapping_screen())
-        no_wait_return = FALSE;
       wait_return(msg_silent == 0);
       no_wait_return = save_nwr;
     }
 
-    starttermcap();             /* start termcap if not done by wait_return() */
 
     /*
      * In an Amiga window redrawing is caused by asking the window size.
@@ -1956,21 +1948,6 @@ void viminfo_writestring(FILE *fd, char_u *p)
   putc('\n', fd);
 }
 
-/*
- * Implementation of ":fixdel", also used by get_stty().
- *  <BS>    resulting <Del>
- *   ^?		^H
- * not ^?	^?
- */
-void do_fixdel(exarg_T *eap)
-{
-  char_u  *p;
-
-  p = find_termcode((char_u *)"kb");
-  add_termcode((char_u *)"kD", p != NULL
-      && *p == DEL ? (char_u *)CTRL_H_STR : DEL_STR, FALSE);
-}
-
 void print_line_no_prefix(linenr_T lnum, int use_number, int list)
 {
   char_u numbuf[30];
@@ -1996,8 +1973,8 @@ void print_line(linenr_T lnum, int use_number, int list)
   print_line_no_prefix(lnum, use_number, list);
   if (save_silent) {
     msg_putchar('\n');
-    cursor_on();                /* msg_start() switches it off */
-    out_flush();
+    ui_cursor_on();                /* msg_start() switches it off */
+    ui_flush();
     silent_mode = save_silent;
   }
   info_message = FALSE;

@@ -766,11 +766,6 @@ return {
     func='ex_rewind',
   },
   {
-    command='fixdel',
-    flags=bit.bor(TRLBAR, CMDWIN),
-    func='do_fixdel',
-  },
-  {
     command='fold',
     flags=bit.bor(RANGE, WHOLEFOLD, TRLBAR, SBOXOK, CMDWIN),
     func='ex_fold',
@@ -1329,11 +1324,6 @@ return {
     command='mkview',
     flags=bit.bor(BANG, FILE1, TRLBAR),
     func='ex_mkrc',
-  },
-  {
-    command='mode',
-    flags=bit.bor(WORD1, TRLBAR, CMDWIN),
-    func='ex_mode',
   },
   {
     command='next',
@@ -2389,11 +2379,6 @@ return {
     command='windo',
     flags=bit.bor(BANG, NEEDARG, EXTRA, NOTRLCOM),
     func='ex_listdo',
-  },
-  {
-    command='winpos',
-    flags=bit.bor(EXTRA, TRLBAR, CMDWIN),
-    func='ex_winpos',
   },
   {
     command='wnext',

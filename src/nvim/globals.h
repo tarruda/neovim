@@ -236,7 +236,6 @@ EXTERN int need_maketitle INIT(= TRUE);      /* call maketitle() soon */
 
 EXTERN int quit_more INIT(= FALSE);         /* 'q' hit at "--more--" msg */
 #if defined(UNIX) || defined(MACOS_X)
-EXTERN int newline_on_exit INIT(= FALSE);       /* did msg in altern. screen */
 EXTERN int intr_char INIT(= 0);             /* extra interrupt character */
 #endif
 EXTERN int ex_keep_indent INIT(= FALSE);      /* getexmodeline(): keep indent */
@@ -374,10 +373,6 @@ EXTERN int provider_call_nesting INIT(= 0);
 /* Magic number used for hashitem "hi_key" value indicating a deleted item.
  * Only the address is used. */
 EXTERN char_u hash_removed;
-
-
-EXTERN int scroll_region INIT(= FALSE);      /* term supports scroll region */
-EXTERN int t_colors INIT(= 0);              /* int value of T_CCO */
 
 /*
  * When highlight_match is TRUE, highlight a match, starting at the cursor
@@ -918,8 +913,6 @@ EXTERN int read_cmd_fd INIT(= 0);           /* fd to read commands from */
 /* volatile because it is used in signal handler catch_sigint(). */
 EXTERN volatile int got_int INIT(= FALSE);    /* set to TRUE when interrupt
                                                  signal occurred */
-EXTERN int termcap_active INIT(= FALSE);        /* set by starttermcap() */
-EXTERN int cur_tmode INIT(= TMODE_COOK);        /* input terminal mode */
 EXTERN int bangredo INIT(= FALSE);          /* set to TRUE with ! command */
 EXTERN int searchcmdlen;                    /* length of previous search cmd */
 EXTERN int reg_do_extmatch INIT(= 0);       /* Used when compiling regexp:
@@ -1244,10 +1237,6 @@ EXTERN FILE *time_fd INIT(= NULL);  /* where to write startup timing */
  */
 EXTERN int ignored;
 EXTERN char *ignoredp;
-
-/* Temporarily moved these static variables to assist in migrating from
- * os_unix.c */
-EXTERN int curr_tmode INIT(= TMODE_COOK); /* contains current terminal mode */
 
 // If a msgpack-rpc channel should be started over stdin/stdout
 EXTERN bool embedded_mode INIT(= false);

@@ -55,7 +55,6 @@
 #include "nvim/strings.h"
 #include "nvim/syntax.h"
 #include "nvim/tag.h"
-#include "nvim/term.h"
 #include "nvim/ui.h"
 #include "nvim/mouse.h"
 #include "nvim/undo.h"
@@ -424,7 +423,7 @@ normal_cmd (
   int c;
   bool ctrl_w = false;                  /* got CTRL-W command */
   int old_col = curwin->w_curswant;
-  bool need_flushbuf;                   /* need to call out_flush() */
+  bool need_flushbuf;                   /* need to call ui_flush() */
   pos_T old_pos;                        /* cursor position before command */
   int mapped_len;
   static int old_mapped_len = 0;
@@ -448,7 +447,7 @@ normal_cmd (
   c = finish_op;
   finish_op = (oap->op_type != OP_NOP);
   if (finish_op != c) {
-    ui_cursor_shape();                  /* may show different cursor shape */
+    ui_change_mode();                  /* may show different cursor shape */
   }
 
   /* When not finishing an operator and no register name typed, reset the
@@ -753,7 +752,7 @@ getcount:
     if (cp != NULL) {
       if (repl) {
         State = REPLACE;                /* pretend Replace mode */
-        ui_cursor_shape();              /* show different cursor shape */
+        ui_change_mode();              /* show different cursor shape */
       }
       if (lang && curbuf->b_p_iminsert == B_IMODE_LMAP) {
         /* Allow mappings defined with ":lmap". */
@@ -865,7 +864,7 @@ getcount:
    * mappings.
    */
   if (need_flushbuf)
-    out_flush();
+    ui_flush();
   if (ca.cmdchar != K_IGNORE)
     did_cursorhold = false;
 
@@ -990,8 +989,8 @@ getcount:
       free(kmsg);
     }
     setcursor();
-    cursor_on();
-    out_flush();
+    ui_cursor_on();
+    ui_flush();
     if (msg_scroll || emsg_on_display)
       os_delay(1000L, true);            /* wait at least one second */
     os_delay(3000L, false);             /* wait up to three seconds */
@@ -1014,7 +1013,7 @@ normal_end:
   /* Redraw the cursor with another shape, if we were in Operator-pending
    * mode or did a replace command. */
   if (c || ca.cmdchar == 'r') {
-    ui_cursor_shape();                  /* may show different cursor shape */
+    ui_change_mode();                  /* may show different cursor shape */
   }
 
   if (oap->op_type == OP_NOP && oap->regname == 0
@@ -3019,7 +3018,7 @@ static void display_showcmd(void)
 {
   int len;
 
-  cursor_off();
+  ui_cursor_off();
 
   len = (int)STRLEN(showcmd_buf);
   if (len == 0)

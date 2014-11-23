@@ -145,11 +145,7 @@ static char *(features[]) = {
   "-terminfo",
 # endif // ifdef TERMINFO
 #else   // unix always includes termcap support
-# ifdef HAVE_TGETENT
-  "+tgetent",
-# else  // ifdef HAVE_TGETENT
   "-tgetent",
-# endif  // ifdef HAVE_TGETENT
 #endif  // if defined(UNIX)
   "+termresponse",
   "+textobjects",

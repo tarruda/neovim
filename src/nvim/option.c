@@ -66,6 +66,7 @@
 #include "nvim/garray.h"
 #include "nvim/cursor_shape.h"
 #include "nvim/move.h"
+#include "nvim/mouse.h"
 #include "nvim/normal.h"
 #include "nvim/os_unix.h"
 #include "nvim/path.h"
@@ -74,7 +75,7 @@
 #include "nvim/spell.h"
 #include "nvim/strings.h"
 #include "nvim/syntax.h"
-#include "nvim/term.h"
+#include "nvim/ui.h"
 #include "nvim/undo.h"
 #include "nvim/window.h"
 #include "nvim/os/os.h"
@@ -1530,10 +1531,6 @@ static struct vimoption
   {"tagstack",    "tgst", P_BOOL|P_VI_DEF,
    (char_u *)&p_tgst, PV_NONE,
    {(char_u *)TRUE, (char_u *)0L} SCRIPTID_INIT},
-  {"term",        NULL,   P_STRING|P_EXPAND|P_NODEFAULT|P_NO_MKRC|P_VI_DEF|
-   P_RALL,
-   (char_u *)&T_NAME, PV_NONE,
-   {(char_u *)"", (char_u *)0L} SCRIPTID_INIT},
   {"termbidi", "tbidi",   P_BOOL|P_VI_DEF,
    (char_u *)&p_tbidi, PV_NONE,
    {(char_u *)FALSE, (char_u *)0L} SCRIPTID_INIT},
@@ -1595,10 +1592,6 @@ static struct vimoption
   {"ttyscroll",   "tsl",  P_NUM|P_VI_DEF,
    (char_u *)&p_ttyscroll, PV_NONE,
    {(char_u *)999L, (char_u *)0L} SCRIPTID_INIT},
-  {"ttytype",     "tty",  P_STRING|P_EXPAND|P_NODEFAULT|P_NO_MKRC|P_VI_DEF|
-   P_RALL,
-   (char_u *)&T_NAME, PV_NONE,
-   {(char_u *)"", (char_u *)0L} SCRIPTID_INIT},
   {"undodir",     "udir", P_STRING|P_EXPAND|P_COMMA|P_NODUP|P_SECURE|P_VI_DEF,
    (char_u *)&p_udir, PV_NONE,
    {(char_u *)".", (char_u *)0L}
@@ -1743,70 +1736,6 @@ static struct vimoption
   {"writedelay",  "wd",   P_NUM|P_VI_DEF,
    (char_u *)&p_wd, PV_NONE,
    {(char_u *)0L, (char_u *)0L} SCRIPTID_INIT},
-
-  /* terminal output codes */
-#define p_term(sss, vvv)   {sss, NULL, P_STRING|P_VI_DEF|P_RALL|P_SECURE, \
-                            (char_u *)&vvv, PV_NONE, \
-                            {(char_u *)"", (char_u *)0L} SCRIPTID_INIT},
-
-  p_term("t_AB", T_CAB)
-  p_term("t_AF", T_CAF)
-  p_term("t_AL", T_CAL)
-  p_term("t_al", T_AL)
-  p_term("t_bc", T_BC)
-  p_term("t_cd", T_CD)
-  p_term("t_ce", T_CE)
-  p_term("t_cl", T_CL)
-  p_term("t_cm", T_CM)
-  p_term("t_Co", T_CCO)
-  p_term("t_CS", T_CCS)
-  p_term("t_cs", T_CS)
-  p_term("t_CV", T_CSV)
-  p_term("t_ut", T_UT)
-  p_term("t_da", T_DA)
-  p_term("t_db", T_DB)
-  p_term("t_DL", T_CDL)
-  p_term("t_dl", T_DL)
-  p_term("t_fs", T_FS)
-  p_term("t_IE", T_CIE)
-  p_term("t_IS", T_CIS)
-  p_term("t_ke", T_KE)
-  p_term("t_ks", T_KS)
-  p_term("t_le", T_LE)
-  p_term("t_mb", T_MB)
-  p_term("t_md", T_MD)
-  p_term("t_me", T_ME)
-  p_term("t_mr", T_MR)
-  p_term("t_ms", T_MS)
-  p_term("t_nd", T_ND)
-  p_term("t_op", T_OP)
-  p_term("t_RI", T_CRI)
-  p_term("t_RV", T_CRV)
-  p_term("t_u7", T_U7)
-  p_term("t_Sb", T_CSB)
-  p_term("t_Sf", T_CSF)
-  p_term("t_se", T_SE)
-  p_term("t_so", T_SO)
-  p_term("t_sr", T_SR)
-  p_term("t_ts", T_TS)
-  p_term("t_te", T_TE)
-  p_term("t_ti", T_TI)
-  p_term("t_ue", T_UE)
-  p_term("t_us", T_US)
-  p_term("t_vb", T_VB)
-  p_term("t_ve", T_VE)
-  p_term("t_vi", T_VI)
-  p_term("t_vs", T_VS)
-  p_term("t_WP", T_CWP)
-  p_term("t_WS", T_CWS)
-  p_term("t_SI", T_CSI)
-  p_term("t_EI", T_CEI)
-  p_term("t_xs", T_XS)
-  p_term("t_ZH", T_CZH)
-  p_term("t_ZR", T_CZR)
-
-  /* terminal key codes are not in here */
-
   /* end marker */
   {
     NULL, NULL, 0, NULL, PV_NONE, {NULL, NULL} SCRIPTID_INIT
@@ -2020,7 +1949,7 @@ void set_init_1(void)
    * Don't set the P_ALLOCED flag, because we don't want to free the
    * default.
    */
-  for (opt_idx = 0; !istermoption(&options[opt_idx]); opt_idx++) {
+  for (opt_idx = 0; options[opt_idx].fullname != NULL; opt_idx++) {
     if ((options[opt_idx].flags & P_GETTEXT)
         && options[opt_idx].var != NULL)
       p = (char_u *)_(*(char **)options[opt_idx].var);
@@ -2193,7 +2122,7 @@ set_options_default (
     int opt_flags                  /* OPT_FREE, OPT_LOCAL and/or OPT_GLOBAL */
 )
 {
-  for (int i = 0; !istermoption(&options[i]); i++) {
+  for (int i = 0; options[i].fullname != NULL; i++) {
     if (!(options[i].flags & P_NODEFAULT)) {
       set_option_default(i, opt_flags, p_cp);
     }
@@ -2244,7 +2173,7 @@ void free_all_options(void)
 {
   int i;
 
-  for (i = 0; !istermoption(&options[i]); i++) {
+  for (i = 0; options[i].fullname != NULL; i++) {
     if (options[i].indir == PV_NONE) {
       /* global option: free value and default value. */
       if (options[i].flags & P_ALLOCED && options[i].var != NULL)
@@ -2320,18 +2249,7 @@ void set_init_2(void)
  */
 static char_u *term_bg_default(void)
 {
-  char_u      *p;
-
-  if (STRCMP(T_NAME, "linux") == 0
-      || STRCMP(T_NAME, "screen.linux") == 0
-      || STRCMP(T_NAME, "cygwin") == 0
-      || STRCMP(T_NAME, "putty") == 0
-      || ((p = (char_u *)os_getenv("COLORFGBG")) != NULL
-          && (p = vim_strrchr(p, ';')) != NULL
-          && ((p[1] >= '0' && p[1] <= '6') || p[1] == '8')
-          && p[2] == NUL))
-    return (char_u *)"dark";
-  return (char_u *)"light";
+  return (char_u *)"dark";
 }
 
 /*
@@ -2402,9 +2320,6 @@ void set_init_3(void)
     free(p);
   }
 #endif
-
-
-  set_title_defaults();
 }
 
 /*
@@ -2429,38 +2344,6 @@ void set_helplang_default(char_u *lang)
     }
     p_hlg[2] = NUL;
     options[idx].flags |= P_ALLOCED;
-  }
-}
-
-
-/*
- * 'title' and 'icon' only default to true if they have not been set or reset
- * in .vimrc and we can read the old value.
- * When 'title' and 'icon' have been reset in .vimrc, we won't even check if
- * they can be reset.  This reduces startup time when using X on a remote
- * machine.
- */
-void set_title_defaults(void)
-{
-  int idx1;
-  long val;
-
-  /*
-   * If GUI is (going to be) used, we can always set the window title and
-   * icon name.  Saves a bit of time, because the X11 display server does
-   * not need to be contacted.
-   */
-  idx1 = findoption((char_u *)"title");
-  if (idx1 >= 0 && !(options[idx1].flags & P_WAS_SET)) {
-    val = mch_can_restore_title();
-    options[idx1].def_val[VI_DEFAULT] = (char_u *)val;
-    p_title = val;
-  }
-  idx1 = findoption((char_u *)"icon");
-  if (idx1 >= 0 && !(options[idx1].flags & P_WAS_SET)) {
-    val = mch_can_restore_icon();
-    options[idx1].def_val[VI_DEFAULT] = (char_u *)val;
-    p_icon = val;
   }
 }
 
@@ -2503,7 +2386,6 @@ do_set (
   int prepending;                   /* "opt^=arg" */
   int removing;                     /* "opt-=arg" */
   int cp_val = 0;
-  char_u key_name[2];
 
   if (*arg == NUL) {
     showoptions(0, opt_flags);
@@ -2530,12 +2412,6 @@ do_set (
         showoptions(1, opt_flags);
         did_show = TRUE;
       }
-    } else if (STRNCMP(arg, "termcap",
-                   7) == 0 && !(opt_flags & OPT_MODELINE)) {
-      showoptions(2, opt_flags);
-      show_termcodes();
-      did_show = TRUE;
-      arg += 7;
     } else {
       prefix = 1;
       if (STRNCMP(arg, "no", 2) == 0 && STRNCMP(arg, "novice", 6) != 0) {
@@ -2630,13 +2506,6 @@ do_set (
         varp = get_varp_scope(&(options[opt_idx]), opt_flags);
       } else {
         flags = P_STRING;
-        if (key < 0) {
-          key_name[0] = KEY2TERMCAP0(key);
-          key_name[1] = KEY2TERMCAP1(key);
-        } else {
-          key_name[0] = KS_KEY;
-          key_name[1] = (key & 0xff);
-        }
       }
 
       /* Skip all options that are not window-local (used when showing
@@ -2723,15 +2592,6 @@ do_set (
               last_set_msg(curbuf->b_p_scriptID[
                     (int)options[opt_idx].indir & PV_MASK]);
           }
-        } else {
-          char_u          *p;
-
-          p = find_termcode(key_name);
-          if (p == NULL) {
-            errmsg = (char_u *)N_("E846: Key code not set");
-            goto skip;
-          } else
-            (void)show_one_termcode(key_name, p, TRUE);
         }
         if (nextchar != '?'
             && nextchar != NUL && !vim_iswhite(afterchar))
@@ -3134,25 +2994,6 @@ do_set (
             /* If error detected, print the error message. */
             if (errmsg != NULL)
               goto skip;
-          } else {                /* key code option */
-            char_u      *p;
-
-            if (nextchar == '&') {
-              if (add_termcap_entry(key_name, TRUE) == FAIL)
-                errmsg = (char_u *)N_("E522: Not found in termcap");
-            } else {
-              ++arg;               /* jump to after the '=' or ':' */
-              for (p = arg; *p && !vim_iswhite(*p); ++p)
-                if (*p == '\\' && p[1] != NUL)
-                  ++p;
-              nextchar = *p;
-              *p = NUL;
-              add_termcode(key_name, arg, FALSE);
-              *p = nextchar;
-            }
-            if (full_screen)
-              ttest(FALSE);
-            redraw_all_later(CLEAR);
           }
         }
 
@@ -3206,8 +3047,8 @@ theend:
     silent_mode = FALSE;
     info_message = TRUE;        /* use mch_msg(), not mch_errmsg() */
     msg_putchar('\n');
-    cursor_on();                /* msg_start() switches it off */
-    out_flush();
+    ui_cursor_on();                /* msg_start() switches it off */
+    ui_flush();
     silent_mode = TRUE;
     info_message = FALSE;       /* use mch_msg(), not mch_errmsg() */
   }
@@ -3284,31 +3125,6 @@ static char_u *check_cedit(void)
   }
   return NULL;
 }
-
-/*
- * When changing 'title', 'titlestring', 'icon' or 'iconstring', call
- * maketitle() to create and display it.
- * When switching the title or icon off, call mch_restore_title() to get
- * the old value back.
- */
-static void 
-did_set_title (
-    int icon                   /* Did set icon instead of title */
-)
-{
-  if (starting != NO_SCREEN
-      ) {
-    maketitle();
-    if (icon) {
-      if (!p_icon)
-        mch_restore_title(2);
-    } else {
-      if (!p_title)
-        mch_restore_title(1);
-    }
-  }
-}
-
 /*
  * set_options_bin -  called when 'bin' changes value.
  */
@@ -3773,16 +3589,6 @@ did_set_string_option (
            && vim_strpbrk(*varp, (char_u *)"/\\*?[|<>") != NULL) {
     errmsg = e_invarg;
   }
-  /* 'term' */
-  else if (varp == &T_NAME) {
-    if (T_NAME[0] == NUL)
-      errmsg = (char_u *)N_("E529: Cannot set 'term' to empty string");
-    else if (set_termname(T_NAME) == FAIL)
-      errmsg = (char_u *)N_("E522: Not found in termcap");
-    else
-      /* Screen colors may have changed. */
-      redraw_later_clear();
-  }
   /* 'backupcopy' */
   else if (varp == &p_bkc) {
     if (opt_strings_flags(p_bkc, p_bkc_values, &bkc_flags, TRUE) != OK)
@@ -4148,32 +3954,6 @@ did_set_string_option (
     if (*p_viminfo && errmsg == NULL && get_viminfo_parameter('\'') < 0)
       errmsg = (char_u *)N_("E528: Must specify a ' value");
   }
-  /* terminal options */
-  else if (istermoption(&options[opt_idx]) && full_screen) {
-    /* ":set t_Co=0" and ":set t_Co=1" do ":set t_Co=" */
-    if (varp == &T_CCO) {
-      int colors = atoi((char *)T_CCO);
-
-      /* Only reinitialize colors if t_Co value has really changed to
-       * avoid expensive reload of colorscheme if t_Co is set to the
-       * same value multiple times. */
-      if (colors != t_colors) {
-        t_colors = colors;
-        if (t_colors <= 1) {
-          if (new_value_alloced)
-            free(T_CCO);
-          T_CCO = empty_option;
-        }
-        /* We now have a different color setup, initialize it again. */
-        init_highlight(TRUE, FALSE);
-      }
-    }
-    ttest(FALSE);
-    if (varp == &T_ME) {
-      out_str(T_ME);
-      redraw_later(CLEAR);
-    }
-  }
   /* 'showbreak' */
   else if (varp == &p_sbr) {
     for (s = p_sbr; *s; ) {
@@ -4209,8 +3989,6 @@ did_set_string_option (
       stl_syntax |= flagval;
     else
       stl_syntax &= ~flagval;
-    did_set_title(varp == &p_iconstring);
-
   }
 
 
@@ -4220,13 +3998,10 @@ did_set_string_option (
   else if (varp == &p_ttym) {
     /* Switch the mouse off before changing the escape sequences used for
      * that. */
-    mch_setmouse(FALSE);
+    ui_mouse_off();
     if (opt_strings_flags(p_ttym, p_ttym_values, &ttym_flags, FALSE) != OK)
       errmsg = e_invarg;
-    else
-      check_mouse_termcode();
-    if (termcap_active)
-      setmouse();               /* may switch it on again */
+    setmouse();               /* may switch it on again */
   }
 #endif
 
@@ -4602,7 +4377,7 @@ did_set_string_option (
 
   if (varp == &p_mouse) {
     if (*p_mouse == NUL)
-      mch_setmouse(FALSE);          /* switch mouse off */
+      ui_mouse_off();
     else
       setmouse();                   /* in case 'mouse' changed */
   }
@@ -5065,12 +4840,6 @@ set_bool_option (
    */
   else if (varp == (char_u *)&(curbuf->b_p_lisp)) {
     (void)buf_init_chartab(curbuf, FALSE);          /* ignore errors */
-  }
-  /* when 'title' changed, may need to change the title; same for 'icon' */
-  else if ((int *)varp == &p_title) {
-    did_set_title(FALSE);
-  } else if ((int *)varp == &p_icon) {
-    did_set_title(TRUE);
   } else if ((bool *)varp == &curbuf->b_changed) {
     if (!value)
       save_file_ff(curbuf);             /* Buffer is unchanged */
@@ -5104,16 +4873,6 @@ set_bool_option (
   } else if ((int *)varp == &p_ea) {
     if (p_ea && !old_value)
       win_equal(curwin, FALSE, 0);
-  } else if ((int *)varp == &p_wiv) {
-    /*
-     * When 'weirdinvert' changed, set/reset 't_xs'.
-     * Then set 'weirdinvert' according to value of 't_xs'.
-     */
-    if (p_wiv && !old_value)
-      T_XS = (char_u *)"y";
-    else if (!p_wiv && old_value)
-      T_XS = empty_option;
-    p_wiv = (*T_XS != NUL);
   } else if ((int *)varp == &p_acd) {
     /* Change directories when the 'acd' option is set now. */
     do_autochdir();
@@ -5416,8 +5175,6 @@ set_num_option (
       curbuf->b_p_iminsert = B_IMODE_NONE;
     }
     p_iminsert = curbuf->b_p_iminsert;
-    if (termcap_active)         /* don't do this in the alternate screen */
-      showmode();
     /* Show/unshow value of 'keymap' in status lines. */
     status_redraw_curbuf();
   } else if (pp == &p_window) {
@@ -5540,7 +5297,7 @@ set_num_option (
       *pp = old_value;
     else if (full_screen
              )
-      set_shellsize((int)Columns, (int)Rows, TRUE);
+      screen_resize((int)Columns, (int)Rows);
     else {
       /* Postpone the resizing; check the size and cmdline position for
        * messages. */
@@ -5946,27 +5703,6 @@ set_option_value (
   return NULL;
 }
 
-/*
- * Get the terminal code for a terminal option.
- * Returns NULL when not found.
- */
-char_u *get_term_code(char_u *tname)
-{
-  int opt_idx;
-  char_u  *varp;
-
-  if (tname[0] != 't' || tname[1] != '_' ||
-      tname[2] == NUL || tname[3] == NUL)
-    return NULL;
-  if ((opt_idx = findoption(tname)) >= 0) {
-    varp = get_varp(&(options[opt_idx]));
-    if (varp != NULL)
-      varp = *(char_u **)(varp);
-    return varp;
-  }
-  return find_termcode(tname + 2);
-}
-
 char_u *get_highlight_default(void)
 {
   int i;
@@ -6024,7 +5760,6 @@ showoptions (
 {
   struct vimoption    *p;
   int col;
-  int isterm;
   char_u              *varp;
   int item_count;
   int run;
@@ -6060,16 +5795,13 @@ showoptions (
     item_count = 0;
     for (p = &options[0]; p->fullname != NULL; p++) {
       varp = NULL;
-      isterm = istermoption(p);
       if (opt_flags != 0) {
-        if (p->indir != PV_NONE && !isterm)
+        if (p->indir != PV_NONE)
           varp = get_varp_scope(p, opt_flags);
       } else
         varp = get_varp(p);
       if (varp != NULL
-          && ((all == 2 && isterm)
-              || (all == 1 && !isterm)
-              || (all == 0 && !optval_default(p, varp)))) {
+          && (all == 1 || (all == 0 && !optval_default(p, varp)))) {
         if (p->flags & P_BOOL)
           len = 1;                      /* a toggle option fits always */
         else {
@@ -6102,7 +5834,7 @@ showoptions (
         showoneopt(items[i], opt_flags);
         col += INC;
       }
-      out_flush();
+      ui_flush();
       os_breakcheck();
     }
   }
@@ -6204,9 +5936,8 @@ int makeset(FILE *fd, int opt_flags, int local_only)
    * P_PRI_MKRC flag and once without.
    */
   for (pri = 1; pri >= 0; --pri) {
-    for (p = &options[0]; !istermoption(p); p++)
+    for (p = &options[0]; p->fullname != NULL; p++)
       if (!(p->flags & P_NO_MKRC)
-          && !istermoption(p)
           && ((pri == 1) == ((p->flags & P_PRI_MKRC) != 0))) {
         /* skip global option when only doing locals */
         if (p->indir == PV_NONE && !(opt_flags & OPT_GLOBAL))
@@ -6365,92 +6096,6 @@ static int put_setbool(FILE *fd, char *cmd, char *name, int value)
       || put_eol(fd) < 0)
     return FAIL;
   return OK;
-}
-
-/*
- * Clear all the terminal options.
- * If the option has been allocated, free the memory.
- * Terminal options are never hidden or indirect.
- */
-void clear_termoptions(void)
-{
-  /*
-   * Reset a few things before clearing the old options. This may cause
-   * outputting a few things that the terminal doesn't understand, but the
-   * screen will be cleared later, so this is OK.
-   */
-  mch_setmouse(FALSE);              /* switch mouse off */
-  mch_restore_title(3);             /* restore window titles */
-  stoptermcap();                        /* stop termcap mode */
-
-  free_termoptions();
-}
-
-void free_termoptions(void)
-{
-  struct vimoption   *p;
-
-  for (p = &options[0]; p->fullname != NULL; p++)
-    if (istermoption(p)) {
-      if (p->flags & P_ALLOCED)
-        free_string_option(*(char_u **)(p->var));
-      if (p->flags & P_DEF_ALLOCED)
-        free_string_option(p->def_val[VI_DEFAULT]);
-      *(char_u **)(p->var) = empty_option;
-      p->def_val[VI_DEFAULT] = empty_option;
-      p->flags &= ~(P_ALLOCED|P_DEF_ALLOCED);
-    }
-  clear_termcodes();
-}
-
-/*
- * Free the string for one term option, if it was allocated.
- * Set the string to empty_option and clear allocated flag.
- * "var" points to the option value.
- */
-void free_one_termoption(char_u *var)
-{
-  struct vimoption   *p;
-
-  for (p = &options[0]; p->fullname != NULL; p++)
-    if (p->var == var) {
-      if (p->flags & P_ALLOCED)
-        free_string_option(*(char_u **)(p->var));
-      *(char_u **)(p->var) = empty_option;
-      p->flags &= ~P_ALLOCED;
-      break;
-    }
-}
-
-/*
- * Set the terminal option defaults to the current value.
- * Used after setting the terminal name.
- */
-void set_term_defaults(void)
-{
-  struct vimoption   *p;
-
-  for (p = &options[0]; p->fullname != NULL; p++) {
-    if (istermoption(p) && p->def_val[VI_DEFAULT] != *(char_u **)(p->var)) {
-      if (p->flags & P_DEF_ALLOCED) {
-        free_string_option(p->def_val[VI_DEFAULT]);
-        p->flags &= ~P_DEF_ALLOCED;
-      }
-      p->def_val[VI_DEFAULT] = *(char_u **)(p->var);
-      if (p->flags & P_ALLOCED) {
-        p->flags |= P_DEF_ALLOCED;
-        p->flags &= ~P_ALLOCED;          /* don't free the value now */
-      }
-    }
-  }
-}
-
-/*
- * return TRUE if 'p' starts with 't_'
- */
-static int istermoption(struct vimoption *p)
-{
-  return p->fullname[0] == 't' && p->fullname[1] == '_';
 }
 
 /*
@@ -7235,8 +6880,6 @@ int ExpandSettings(expand_T *xp, regmatch_T *regmatch, int *num_file, char_u ***
   int count = 0;
   char_u      *str;
   int loop;
-  int is_term_opt;
-  char_u name_buf[MAX_KEY_NAME_LEN];
   static char *(names[]) = {"all", "termcap"};
   int ic = regmatch->rm_ic;             /* remember the ignore-case flag */
 
@@ -7263,8 +6906,7 @@ int ExpandSettings(expand_T *xp, regmatch_T *regmatch, int *num_file, char_u ***
       if (xp->xp_context == EXPAND_BOOL_SETTINGS
           && !(options[opt_idx].flags & P_BOOL))
         continue;
-      is_term_opt = istermoption(&options[opt_idx]);
-      if (is_term_opt && num_normal > 0)
+      if (num_normal > 0)
         continue;
       match = FALSE;
       if (vim_regexec(regmatch, str, (colnr_T)0)
@@ -7272,83 +6914,14 @@ int ExpandSettings(expand_T *xp, regmatch_T *regmatch, int *num_file, char_u ***
               && vim_regexec(regmatch,
                   (char_u *)options[opt_idx].shortname, (colnr_T)0)))
         match = TRUE;
-      else if (is_term_opt) {
-        name_buf[0] = '<';
-        name_buf[1] = 't';
-        name_buf[2] = '_';
-        name_buf[3] = str[2];
-        name_buf[4] = str[3];
-        name_buf[5] = '>';
-        name_buf[6] = NUL;
-        if (vim_regexec(regmatch, name_buf, (colnr_T)0)) {
-          match = TRUE;
-          str = name_buf;
-        }
-      }
       if (match) {
         if (loop == 0) {
-          if (is_term_opt)
-            num_term++;
-          else
-            num_normal++;
+          num_normal++;
         } else
           (*file)[count++] = vim_strsave(str);
       }
     }
-    /*
-     * Check terminal key codes, these are not in the option table
-     */
-    if (xp->xp_context != EXPAND_BOOL_SETTINGS  && num_normal == 0) {
-      for (opt_idx = 0; (str = get_termcode(opt_idx)) != NULL; opt_idx++) {
-        if (!isprint(str[0]) || !isprint(str[1]))
-          continue;
 
-        name_buf[0] = 't';
-        name_buf[1] = '_';
-        name_buf[2] = str[0];
-        name_buf[3] = str[1];
-        name_buf[4] = NUL;
-
-        match = FALSE;
-        if (vim_regexec(regmatch, name_buf, (colnr_T)0))
-          match = TRUE;
-        else {
-          name_buf[0] = '<';
-          name_buf[1] = 't';
-          name_buf[2] = '_';
-          name_buf[3] = str[0];
-          name_buf[4] = str[1];
-          name_buf[5] = '>';
-          name_buf[6] = NUL;
-
-          if (vim_regexec(regmatch, name_buf, (colnr_T)0))
-            match = TRUE;
-        }
-        if (match) {
-          if (loop == 0)
-            num_term++;
-          else
-            (*file)[count++] = vim_strsave(name_buf);
-        }
-      }
-
-      /*
-       * Check special key names.
-       */
-      regmatch->rm_ic = TRUE;                   /* ignore case here */
-      for (opt_idx = 0; (str = get_key_name(opt_idx)) != NULL; opt_idx++) {
-        name_buf[0] = '<';
-        STRCPY(name_buf + 1, str);
-        STRCAT(name_buf, ">");
-
-        if (vim_regexec(regmatch, name_buf, (colnr_T)0)) {
-          if (loop == 0)
-            num_term++;
-          else
-            (*file)[count++] = vim_strsave(name_buf);
-        }
-      }
-    }
     if (loop == 0) {
       if (num_normal > 0)
         *num_file = num_normal;
@@ -7368,15 +6941,6 @@ void ExpandOldSetting(int *num_file, char_u ***file)
 
   *num_file = 0;
   *file = (char_u **)xmalloc(sizeof(char_u *));
-
-  /*
-   * For a terminal key code expand_option_idx is < 0.
-   */
-  if (expand_option_idx < 0) {
-    var = find_termcode(expand_option_name + 2);
-    if (var == NULL)
-      expand_option_idx = findoption(expand_option_name);
-  }
 
   if (expand_option_idx >= 0) {
     /* put string of option value in NameBuff */
@@ -7756,7 +7320,7 @@ void vimrc_found(char_u *fname, char_u *envname)
 
   if (!option_was_set((char_u *)"cp")) {
     p_cp = FALSE;
-    for (opt_idx = 0; !istermoption(&options[opt_idx]); opt_idx++)
+    for (opt_idx = 0; options[opt_idx].fullname != NULL; opt_idx++)
       if (!(options[opt_idx].flags & (P_WAS_SET|P_VI_DEF)))
         set_option_default(opt_idx, OPT_FREE, FALSE);
     didset_options();
@@ -7809,17 +7373,6 @@ int option_was_set(char_u *name)
 }
 
 /*
- * Reset the flag indicating option "name" was set.
- */
-void reset_option_was_set(char_u *name)
-{
-  int idx = findoption(name);
-
-  if (idx >= 0)
-    options[idx].flags &= ~P_WAS_SET;
-}
-
-/*
  * compatible_set() - Called when 'compatible' has been set or unset.
  *
  * When 'compatible' set: Set all relevant options (those that have the P_VIM)
@@ -7831,7 +7384,7 @@ static void compatible_set(void)
 {
   int opt_idx;
 
-  for (opt_idx = 0; !istermoption(&options[opt_idx]); opt_idx++)
+  for (opt_idx = 0; options[opt_idx].fullname != NULL; opt_idx++)
     if (       ((options[opt_idx].flags & P_VIM) && p_cp)
                || (!(options[opt_idx].flags & P_VI_DEF) && !p_cp))
       set_option_default(opt_idx, OPT_FREE, p_cp);

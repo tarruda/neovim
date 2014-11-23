@@ -115,15 +115,6 @@ local function nvim_feed(input)
   end
 end
 
-local function nvim_replace_termcodes(input)
-  -- small hack to stop <C-@> from being replaced by the internal
-  -- representation(which is different and won't work for vim_input)
-  local temp_replacement = 'CCCCCCCCC@@@@@@@@@@'
-  input = input:gsub('<[Cc][-]@>', temp_replacement)
-  local rv = request('vim_replace_termcodes', input, false, true, true)
-  return rv:gsub(temp_replacement, '\000')
-end
-
 local function dedent(str)
   -- find minimum common indent across lines
   local indent = nil
@@ -148,7 +139,7 @@ end
 
 local function feed(...)
   for _, v in ipairs({...}) do
-    nvim_feed(nvim_replace_termcodes(dedent(v)))
+    nvim_feed(dedent(v))
   end
 end
 
@@ -172,8 +163,11 @@ end
 
 local function insert(...)
   nvim_feed('i')
-  rawfeed(...)
-  nvim_feed(nvim_replace_termcodes('<ESC>'))
+  for _, v in ipairs({...}) do
+    local escaped = v:gsub('<', '<lt>')
+    rawfeed(escaped)
+  end
+  nvim_feed('<ESC>')
 end
 
 local function execute(...)
@@ -182,8 +176,8 @@ local function execute(...)
       -- not a search command, prefix with colon
       nvim_feed(':')
     end
-    nvim_feed(v)
-    nvim_feed(nvim_replace_termcodes('<CR>'))
+    nvim_feed(v:gsub('<', '<lt>'))
+    nvim_feed('<CR>')
   end
 end
 

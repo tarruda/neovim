@@ -51,7 +51,7 @@
 #include "nvim/sha256.h"
 #include "nvim/strings.h"
 #include "nvim/tempfile.h"
-#include "nvim/term.h"
+#include "nvim/ui.h"
 #include "nvim/types.h"
 #include "nvim/undo.h"
 #include "nvim/window.h"
@@ -219,7 +219,7 @@ void filemess(buf_T *buf, char_u *name, char_u *s, int attr)
   /* may truncate the message to avoid a hit-return prompt */
   msg_outtrans_attr(msg_may_trunc(FALSE, IObuff), attr);
   msg_clr_eos();
-  out_flush();
+  ui_flush();
   msg_scrolled_ign = FALSE;
 }
 
@@ -1812,8 +1812,6 @@ failed:
      * Switch on raw mode now and clear the screen.
      */
     if (read_stdin) {
-      settmode(TMODE_RAW);              /* set to raw mode */
-      starttermcap();
       screenclear();
     }
 
@@ -2386,9 +2384,6 @@ buf_write (
     overwriting = TRUE;
   else
     overwriting = FALSE;
-
-  if (exiting)
-    settmode(TMODE_COOK);           /* when exiting allow typeahead now */
 
   ++no_wait_return;                 /* don't wait for return yet */
 
@@ -3503,7 +3498,7 @@ restore_backup:
          * know we got the message. */
         if (got_int) {
           MSG(_(e_interr));
-          out_flush();
+          ui_flush();
         }
         if ((fd = os_open((char *)backup, O_RDONLY, 0)) >= 0) {
           if ((write_info.bw_fd = os_open((char *)fname,
@@ -4727,7 +4722,7 @@ check_timestamps (
     if (need_wait_return && didit == 2) {
       /* make sure msg isn't overwritten */
       msg_puts((char_u *)"\n");
-      out_flush();
+      ui_flush();
     }
   }
   return didit;
@@ -4957,7 +4952,7 @@ buf_check_timestamp (
           msg_clr_eos();
           (void)msg_end();
           if (emsg_silent == 0) {
-            out_flush();
+            ui_flush();
             /* give the user some time to think about it */
             os_delay(1000L, true);
 

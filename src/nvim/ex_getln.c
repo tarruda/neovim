@@ -44,6 +44,7 @@
 #include "nvim/misc1.h"
 #include "nvim/misc2.h"
 #include "nvim/memory.h"
+#include "nvim/mouse.h"
 #include "nvim/cursor_shape.h"
 #include "nvim/keymap.h"
 #include "nvim/garray.h"
@@ -58,7 +59,6 @@
 #include "nvim/strings.h"
 #include "nvim/syntax.h"
 #include "nvim/tag.h"
-#include "nvim/term.h"
 #include "nvim/window.h"
 #include "nvim/ui.h"
 #include "nvim/os/os.h"
@@ -268,11 +268,7 @@ getcmdline (
   }
 
   setmouse();
-  ui_cursor_shape();            /* may show different cursor shape */
-
-  /* When inside an autocommand for writing "exiting" may be set and
-  * terminal mode set to cooked.  Need to set raw mode here then. */
-  settmode(TMODE_RAW);
+  ui_change_mode();            /* may show different cursor shape */
 
   init_history();
   hiscnt = hislen;              /* set hiscnt to impossible history value */
@@ -658,7 +654,7 @@ getcmdline (
           goto cmdline_changed;
         if (!cmd_silent) {
           windgoto(msg_row, 0);
-          out_flush();
+          ui_flush();
         }
         break;
       }
@@ -853,7 +849,7 @@ getcmdline (
       else
         ccline.overstrike = !ccline.overstrike;
 
-      ui_cursor_shape();                /* may show different cursor shape */
+      ui_change_mode();                /* may show different cursor shape */
       goto cmdline_not_changed;
 
     case Ctrl_HAT:
@@ -873,7 +869,7 @@ getcmdline (
         else
           set_imsearch_global();
       }
-      ui_cursor_shape();                /* may show different cursor shape */
+      ui_change_mode();                /* may show different cursor shape */
       /* Show/unshow value of 'keymap' in status lines later. */
       status_redraw_curbuf();
       goto cmdline_not_changed;
@@ -1375,8 +1371,8 @@ cmdline_changed:
       if (ccline.cmdlen == 0)
         i = 0;
       else {
-        cursor_off();                   /* so the user knows we're busy */
-        out_flush();
+        ui_cursor_off();                   /* so the user knows we're busy */
+        ui_flush();
         ++emsg_off;            /* So it doesn't beep if bad expr */
         /* Set the time limit to half a second. */
         tm = profile_setlimit(500L);
@@ -1516,7 +1512,7 @@ returncmd:
 
   State = save_State;
   setmouse();
-  ui_cursor_shape();            /* may show different cursor shape */
+  ui_change_mode();            /* may show different cursor shape */
 
   {
     char_u *p = ccline.cmdbuff;
@@ -1714,7 +1710,7 @@ getexmodeline (
 
   /* Switch cursor on now.  This avoids that it happens after the "\n", which
    * confuses the system function that computes tabstops. */
-  cursor_on();
+  ui_cursor_on();
 
   /* always start in column 0; write a newline if necessary */
   compute_cmdrow();
@@ -2590,7 +2586,7 @@ nextwild (
   }
 
   MSG_PUTS("...");          /* show that we are busy */
-  out_flush();
+  ui_flush();
 
   i = (int)(xp->xp_pattern - ccline.cmdbuff);
   xp->xp_pattern_len = ccline.cmdpos - i;
@@ -3083,7 +3079,7 @@ static int showmatches(expand_T *xp, int wildmenu)
     msg_didany = FALSE;                 /* lines_left will be set */
     msg_start();                        /* prepare for paging */
     msg_putchar('\n');
-    out_flush();
+    ui_flush();
     cmdline_row = msg_row;
     msg_didany = FALSE;                 /* lines_left will be set again */
     msg_start();                        /* prepare for paging */
@@ -3180,7 +3176,7 @@ static int showmatches(expand_T *xp, int wildmenu)
         msg_clr_eos();
         msg_putchar('\n');
       }
-      out_flush();                          /* show one line at a time */
+      ui_flush();                          /* show one line at a time */
       if (got_int) {
         got_int = FALSE;
         break;
@@ -4627,35 +4623,6 @@ int del_history_idx(int histype, int idx)
   return TRUE;
 }
 
-
-/*
- * Very specific function to remove the value in ":set key=val" from the
- * history.
- */
-void remove_key_from_history(void)
-{
-  char_u      *p;
-  int i;
-
-  i = hisidx[HIST_CMD];
-  if (i < 0)
-    return;
-  p = history[HIST_CMD][i].hisstr;
-  if (p != NULL)
-    for (; *p; ++p)
-      if (STRNCMP(p, "key", 3) == 0 && !isalpha(p[3])) {
-        p = vim_strchr(p + 3, '=');
-        if (p == NULL)
-          break;
-        ++p;
-        for (i = 0; p[i] && !vim_iswhite(p[i]); ++i)
-          if (p[i] == '\\' && p[i + 1])
-            ++i;
-        STRMOVE(p, p + i);
-        --p;
-      }
-}
-
 /*
  * Get indices "num1,num2" that specify a range within a list (not a range of
  * text lines in a buffer!) from a string.  Used for ":history" and ":clist".
@@ -4762,7 +4729,7 @@ void ex_history(exarg_T *eap)
           else
             STRCAT(IObuff, hist[i].hisstr);
           msg_outtrans(IObuff);
-          out_flush();
+          ui_flush();
         }
         if (i == idx)
           break;

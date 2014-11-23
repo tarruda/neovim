@@ -6,8 +6,8 @@
 #include <uv.h>
 
 #include "nvim/os/time.h"
+#include "nvim/os/event.h"
 #include "nvim/vim.h"
-#include "nvim/term.h"
 
 static uv_mutex_t delay_mutex;
 static uv_cond_t delay_cond;
@@ -38,31 +38,22 @@ uint64_t os_hrtime(void)
 /// @param ignoreinput If true, allow a SIGINT to interrupt us
 void os_delay(uint64_t milliseconds, bool ignoreinput)
 {
-  os_microdelay(milliseconds * 1000, ignoreinput);
+  if (ignoreinput) {
+    os_microdelay(milliseconds * 1000);
+  } else {
+    if (milliseconds > INT_MAX) {
+      milliseconds = INT_MAX;
+    }
+    event_poll_until((int)milliseconds, got_int);
+  }
 }
 
 /// Sleeps for a certain amount of microseconds
 ///
 /// @param microseconds Number of microseconds to sleep
-/// @param ignoreinput If true, allow a SIGINT to interrupt us
-void os_microdelay(uint64_t microseconds, bool ignoreinput)
+void os_microdelay(uint64_t microseconds)
 {
-  int old_tmode;
-
-  if (ignoreinput) {
-    // Go to cooked mode without echo, to allow SIGINT interrupting us
-    // here
-    old_tmode = curr_tmode;
-
-    if (curr_tmode == TMODE_RAW)
-      settmode(TMODE_SLEEP);
-
-    microdelay(microseconds);
-
-    settmode(old_tmode);
-  } else {
-    microdelay(microseconds);
-  }
+  microdelay(microseconds);
 }
 
 /// Portable version of POSIX localtime_r()

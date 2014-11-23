@@ -41,7 +41,7 @@
 #include "nvim/normal.h"
 #include "nvim/screen.h"
 #include "nvim/strings.h"
-#include "nvim/term.h"
+#include "nvim/ui.h"
 #include "nvim/mouse.h"
 #include "nvim/os/os.h"
 #include "nvim/os/input.h"
@@ -750,7 +750,6 @@ void wait_return(int redraw)
 {
   int c;
   int oldState;
-  int tmpState;
   int had_got_int;
   int save_Recording;
   FILE        *save_scriptout;
@@ -912,18 +911,9 @@ void wait_return(int redraw)
    * Otherwise the screen is only redrawn if 'redraw' is set and no ':'
    * typed.
    */
-  tmpState = State;
   State = oldState;                 /* restore State before set_shellsize */
   setmouse();
   msg_check();
-
-#if defined(UNIX)
-  /*
-   * When switching screens, we need to output an extra newline on exit.
-   */
-  if (swapping_screen() && !termcap_active)
-    newline_on_exit = TRUE;
-#endif
 
   need_wait_return = FALSE;
   did_wait_return = TRUE;
@@ -936,12 +926,8 @@ void wait_return(int redraw)
     keep_msg = NULL;                /* don't redisplay message, it's too long */
   }
 
-  if (tmpState == SETWSIZE) {       /* got resize event while in vgetc() */
-    starttermcap();                 /* start termcap before redrawing */
-    shell_resized();
-  } else if (!skip_redraw
+  if (!skip_redraw
              && (redraw == TRUE || (msg_scrolled != 0 && redraw != -1))) {
-    starttermcap();                 /* start termcap before redrawing */
     redraw_later(VALID);
   }
 }
@@ -960,8 +946,7 @@ static void hit_return_msg(void)
     MSG_PUTS(_("Interrupt: "));
 
   MSG_PUTS_ATTR(_("Press ENTER or type command to continue"), hl_attr(HLF_R));
-  if (!msg_use_printf())
-    msg_clr_eos();
+  msg_clr_eos();
   p_more = save_p_more;
 }
 
@@ -977,17 +962,6 @@ void set_keep_msg(char_u *s, int attr)
     keep_msg = NULL;
   keep_msg_more = FALSE;
   keep_msg_attr = attr;
-}
-
-/*
- * If there currently is a message being displayed, set "keep_msg" to it, so
- * that it will be displayed again after redraw.
- */
-void set_keep_msg_from_hist(void)
-{
-  if (keep_msg == NULL && last_msg_hist != NULL && msg_scrolled == 0
-      && (State & NORMAL))
-    set_keep_msg(last_msg_hist->msg, last_msg_hist->attr);
 }
 
 /*
@@ -1024,7 +998,7 @@ void msg_start(void)
     msg_starthere();
   if (msg_silent == 0) {
     msg_didout = FALSE;                     /* no output on current line yet */
-    cursor_off();
+    ui_cursor_off();
   }
 
   /* when redirecting, may need to start a new line. */
@@ -1582,10 +1556,7 @@ static void msg_puts_attr_len(char_u *str, int maxlen, int attr)
    * different, e.g. for Win32 console) or we just don't know where the
    * cursor is.
    */
-  if (msg_use_printf())
-    msg_puts_printf(str, maxlen);
-  else
-    msg_puts_display(str, maxlen, attr, FALSE);
+  msg_puts_display(str, maxlen, attr, FALSE);
 }
 
 /*
@@ -1782,19 +1753,6 @@ static void msg_scroll_up(void)
 {
   /* scrolling up always works */
   screen_del_lines(0, 0, 1, (int)Rows, TRUE, NULL);
-
-  if (!can_clear((char_u *)" ")) {
-    /* Scrolling up doesn't result in the right background.  Set the
-     * background here.  It's not efficient, but avoids that we have to do
-     * it all over the code. */
-    screen_fill((int)Rows - 1, (int)Rows, 0, (int)Columns, ' ', ' ', 0);
-
-    /* Also clear the last char of the last but one line if it was not
-     * cleared before to avoid a scroll-up. */
-    if (ScreenAttrs[LineOffset[Rows - 2] + Columns - 1] == (sattr_T)-1)
-      screen_fill((int)Rows - 2, (int)Rows - 1,
-          (int)Columns - 1, (int)Columns, ' ', ' ', 0);
-  }
 }
 
 /*
@@ -1975,63 +1933,6 @@ static void t_puts(int *t_col, char_u *t_s, char_u *s, int attr)
     msg_col = 0;
     ++msg_row;
   }
-}
-
-/*
- * Returns TRUE when messages should be printed with mch_errmsg().
- * This is used when there is no valid screen, so we can see error messages.
- * If termcap is not active, we may be writing in an alternate console
- * window, cursor positioning may not work correctly (window size may be
- * different, e.g. for Win32 console) or we just don't know where the
- * cursor is.
- */
-int msg_use_printf(void)
-{
-  return !msg_check_screen()
-         || (swapping_screen() && !termcap_active)
-  ;
-}
-
-/*
- * Print a message when there is no valid screen.
- */
-static void msg_puts_printf(char_u *str, int maxlen)
-{
-  char_u      *s = str;
-  char_u buf[4];
-  char_u      *p;
-
-  while (*s != NUL && (maxlen < 0 || (int)(s - str) < maxlen)) {
-    if (!(silent_mode && p_verbose == 0)) {
-      /* NL --> CR NL translation (for Unix, not for "--version") */
-      /* NL --> CR translation (for Mac) */
-      p = &buf[0];
-      if (*s == '\n' && !info_message)
-        *p++ = '\r';
-      *p++ = *s;
-      *p = '\0';
-      if (info_message)         /* informative message, not an error */
-        mch_msg((char *)buf);
-      else
-        mch_errmsg((char *)buf);
-    }
-
-    /* primitive way to compute the current column */
-    if (cmdmsg_rl) {
-      if (*s == '\r' || *s == '\n')
-        msg_col = Columns - 1;
-      else
-        --msg_col;
-    } else {
-      if (*s == '\r' || *s == '\n')
-        msg_col = 0;
-      else
-        ++msg_col;
-    }
-    ++s;
-  }
-  msg_didout = TRUE;        /* assume that line is not empty */
-
 }
 
 /*
@@ -2381,24 +2282,6 @@ void repeat_message(void)
 }
 
 /*
- * msg_check_screen - check if the screen is initialized.
- * Also check msg_row and msg_col, if they are too big it may cause a crash.
- * While starting the GUI the terminal codes will be set for the GUI, but the
- * output goes to the terminal.  Don't use the terminal codes then.
- */
-static int msg_check_screen(void)
-{
-  if (!full_screen || !screen_valid(FALSE))
-    return FALSE;
-
-  if (msg_row >= Rows)
-    msg_row = Rows - 1;
-  if (msg_col >= Columns)
-    msg_col = Columns - 1;
-  return TRUE;
-}
-
-/*
  * Clear from current message position to end of screen.
  * Skip this when ":silent" was used, no need to clear for redirection.
  */
@@ -2415,22 +2298,13 @@ void msg_clr_eos(void)
  */
 void msg_clr_eos_force(void)
 {
-  if (msg_use_printf()) {
-    if (full_screen) {          /* only when termcap codes are valid */
-      if (*T_CD)
-        out_str(T_CD);          /* clear to end of display */
-      else if (*T_CE)
-        out_str(T_CE);          /* clear to end of line */
-    }
+  if (cmdmsg_rl) {
+    screen_fill(msg_row, msg_row + 1, 0, msg_col + 1, ' ', ' ', 0);
+    screen_fill(msg_row + 1, (int)Rows, 0, (int)Columns, ' ', ' ', 0);
   } else {
-    if (cmdmsg_rl) {
-      screen_fill(msg_row, msg_row + 1, 0, msg_col + 1, ' ', ' ', 0);
-      screen_fill(msg_row + 1, (int)Rows, 0, (int)Columns, ' ', ' ', 0);
-    } else {
-      screen_fill(msg_row, msg_row + 1, msg_col, (int)Columns,
-          ' ', ' ', 0);
-      screen_fill(msg_row + 1, (int)Rows, 0, (int)Columns, ' ', ' ', 0);
-    }
+    screen_fill(msg_row, msg_row + 1, msg_col, (int)Columns,
+        ' ', ' ', 0);
+    screen_fill(msg_row + 1, (int)Rows, 0, (int)Columns, ' ', ' ', 0);
   }
 }
 
@@ -2461,7 +2335,7 @@ int msg_end(void)
     wait_return(FALSE);
     return FALSE;
   }
-  out_flush();
+  ui_flush();
   return TRUE;
 }
 

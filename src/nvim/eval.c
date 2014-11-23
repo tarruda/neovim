@@ -75,7 +75,7 @@
 #include "nvim/syntax.h"
 #include "nvim/tag.h"
 #include "nvim/tempfile.h"
-#include "nvim/term.h"
+#include "nvim/ui.h"
 #include "nvim/mouse.h"
 #include "nvim/undo.h"
 #include "nvim/version.h"
@@ -9932,9 +9932,6 @@ static void f_has(typval_T *argvars, typval_T *rettv)
 #endif
     "termresponse",
     "textobjects",
-#ifdef HAVE_TGETENT
-    "tgetent",
-#endif
     "title",
     "user-commands",        /* was accidentally included in 5.4 */
     "user_commands",
@@ -14373,10 +14370,7 @@ static void f_synIDattr(typval_T *argvars, typval_T *rettv)
     if (modec != 't' && modec != 'c' && modec != 'g')
       modec = 0;        /* replace invalid with current */
   } else {
-    if (t_colors > 1)
-      modec = 'c';
-    else
-      modec = 't';
+    modec = 'c';
   }
 
 
@@ -17072,7 +17066,7 @@ void ex_execute(exarg_T *eap)
   if (ret != FAIL && ga.ga_data != NULL) {
     if (eap->cmdidx == CMD_echomsg) {
       MSG_ATTR(ga.ga_data, echo_attr);
-      out_flush();
+      ui_flush();
     } else if (eap->cmdidx == CMD_echoerr) {
       /* We don't want to abort following commands, restore did_emsg. */
       save_did_emsg = did_emsg;
@@ -17270,7 +17264,7 @@ void ex_function(exarg_T *eap)
           if (j < 99)
             msg_putchar(' ');
           msg_prt_line(FUNCLINE(fp, j), FALSE);
-          out_flush();                  /* show a line at a time */
+          ui_flush();                  /* show a line at a time */
           os_breakcheck();
         }
         if (!got_int) {
@@ -19295,7 +19289,7 @@ void ex_oldfiles(exarg_T *eap)
       MSG_PUTS(": ");
       msg_outtrans(get_tv_string(&li->li_tv));
       msg_putchar('\n');
-      out_flush();                  /* output one line at a time */
+      ui_flush();                  /* output one line at a time */
       os_breakcheck();
     }
     /* Assume "got_int" was set to truncate the listing. */

@@ -11,6 +11,7 @@
 #include <inttypes.h>
 #include <string.h>
 #include <stdbool.h>
+#include <unistd.h>
 
 #include <msgpack.h>
 
@@ -53,8 +54,8 @@
 #include "nvim/screen.h"
 #include "nvim/strings.h"
 #include "nvim/syntax.h"
-#include "nvim/term.h"
 #include "nvim/ui.h"
+#include "nvim/mouse.h"
 #include "nvim/version.h"
 #include "nvim/window.h"
 #include "nvim/os/time.h"
@@ -92,7 +93,6 @@ typedef struct {
   char_u      *use_ef;                  /* 'errorfile' from -q argument */
 
   int want_full_screen;
-  bool stdout_isatty;                   /* is stdout a terminal? */
   char_u      *term;                    /* specified terminal name */
   int no_swap_file;                     /* "-n" argument used */
   int use_debug_break_level;
@@ -177,14 +177,6 @@ int main(int argc, char **argv)
 #endif
 
   /*
-   * Check if we have an interactive window.
-   * On the Amiga: If there is no window, we open one with a newcli command
-   * (needed for :! to * work). mch_check_win() will also handle the -d or
-   * -dev argument.
-   */
-  check_and_set_isatty(&params);
-
-  /*
    * Allocate the first window and buffer.
    * Can't do anything without it, exit when it fails.
    */
@@ -259,12 +251,10 @@ int main(int argc, char **argv)
    */
   mch_init();
   TIME_MSG("shell init");
-
-
   if (!embedded_mode) {
-    // Print a warning if stdout is not a terminal.
-    check_tty(&params);
+    ui_load("build/src/nvim/tui/tui.so");
   }
+
 
   /* This message comes before term inits, but after setting "silent_mode"
    * when the input is not a tty. */
@@ -272,24 +262,18 @@ int main(int argc, char **argv)
     printf(_("%d files to edit\n"), GARGCOUNT);
 
   if (params.want_full_screen && !silent_mode) {
+    full_screen = true;
     if (embedded_mode) {
       // In embedded mode don't do terminal-related initializations, assume an
       // initial screen size of 80x20
-      full_screen = true;
-      set_shellsize(80, 20, false);
-    } else {
-      // set terminal name and get terminal capabilities (will set full_screen)
-      // Do some initialization of the screen
-      termcapinit(params.term);
+      screen_resize(80, 20);
     }
     screen_start();             /* don't know where cursor is now */
-    TIME_MSG("Termcap init");
   }
 
   /*
    * Set the default values for the options that use Rows and Columns.
    */
-  ui_get_shellsize();           /* inits Rows and Columns */
   win_init_size();
   /* Set the 'diff' option now, so that it can be checked for in a .vimrc
    * file.  There is no buffer yet though. */
@@ -395,40 +379,14 @@ int main(int argc, char **argv)
   if (params.edit_type == EDIT_STDIN && !recoverymode)
     read_stdin();
 
-#if defined(UNIX)
-  /* When switching screens and something caused a message from a vimrc
-   * script, need to output an extra newline on exit. */
-  if ((did_emsg || msg_didout) && *T_TI != NUL)
-    newline_on_exit = TRUE;
-#endif
-
-  /*
-   * When done something that is not allowed or error message call
-   * wait_return.  This must be done before starttermcap(), because it may
-   * switch to another screen. It must be done after settmode(TMODE_RAW),
-   * because we want to react on a single key stroke.
-   * Call settmode and starttermcap here, so the T_KS and T_TI may be
-   * defined by termcapinit and redefined in .exrc.
-   */
-  settmode(TMODE_RAW);
-  TIME_MSG("setting raw mode");
-
   if (need_wait_return || msg_didany) {
     wait_return(TRUE);
     TIME_MSG("waiting for return");
   }
 
   if (!embedded_mode) {
-    starttermcap(); // start termcap if not done by wait_return()
-    TIME_MSG("start termcap");
-    may_req_ambiguous_char_width();
     setmouse();  // may start using the mouse
-
-    if (scroll_region) {
-      scroll_region_reset(); // In case Rows changed
-    }
-
-    scroll_start(); // may scroll the screen to the right position
+    ui_unset_scroll_region();
   }
 
   /*
@@ -501,10 +459,6 @@ int main(int argc, char **argv)
   redraw_all_later(NOT_VALID);
   no_wait_return = FALSE;
   starting = 0;
-
-  /* Requesting the termresponse is postponed until here, so that a "-c q"
-   * argument doesn't make it appear in the shell Vim was started from. */
-  may_req_termresponse();
 
   /* start in insert mode */
   if (p_im)
@@ -713,7 +667,7 @@ main_loop (
         curwin->w_valid &= ~VALID_CROW;
       }
       setcursor();
-      cursor_on();
+      ui_cursor_on();
 
       do_redraw = FALSE;
 
@@ -1491,18 +1445,6 @@ static void init_startuptime(mparm_T *paramp)
 }
 
 /*
- * Check if we have an interactive window.
- * On the Amiga: If there is no window, we open one with a newcli command
- * (needed for :! to * work). mch_check_win() will also handle the -d or
- * -dev argument.
- */
-static void check_and_set_isatty(mparm_T *paramp)
-{
-  paramp->stdout_isatty = os_isatty(STDOUT_FILENO);
-  TIME_MSG("window checked");
-}
-
-/*
  * Get filename from command line, given that there is one.
  */
 static char_u *get_fname(mparm_T *parmp)
@@ -1560,7 +1502,6 @@ static void handle_quickfix(mparm_T *paramp)
           paramp->use_ef, OPT_FREE, SID_CARG);
     vim_snprintf((char *)IObuff, IOSIZE, "cfile %s", p_ef);
     if (qf_init(NULL, p_ef, p_efm, TRUE, IObuff) < 0) {
-      out_char('\n');
       mch_exit(3);
     }
     TIME_MSG("reading errorfile");
@@ -1587,30 +1528,6 @@ static void handle_tag(char_u *tagname)
     if (swap_exists_did_quit)
       getout(1);
 #endif
-  }
-}
-
-/*
- * Print a warning if stdout is not a terminal.
- * When starting in Ex mode and commands come from a file, set Silent mode.
- */
-static void check_tty(mparm_T *parmp)
-{
-  // is active input a terminal?
-  bool input_isatty = os_isatty(read_cmd_fd);
-  if (exmode_active) {
-    if (!input_isatty)
-      silent_mode = TRUE;
-  } else if (parmp->want_full_screen && (!parmp->stdout_isatty || !input_isatty)
-      ) {
-    if (!parmp->stdout_isatty)
-      mch_errmsg(_("Vim: Warning: Output is not to a terminal\n"));
-    if (!input_isatty)
-      mch_errmsg(_("Vim: Warning: Input is not from a terminal\n"));
-    out_flush();
-    if (scriptin[0] == NULL)
-      os_delay(2000L, true);
-    TIME_MSG("Warning delay");
   }
 }
 

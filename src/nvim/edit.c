@@ -54,7 +54,6 @@
 #include "nvim/strings.h"
 #include "nvim/syntax.h"
 #include "nvim/tag.h"
-#include "nvim/term.h"
 #include "nvim/ui.h"
 #include "nvim/mouse.h"
 #include "nvim/undo.h"
@@ -467,7 +466,7 @@ edit (
   if (!p_im && did_restart_edit == 0)
     change_warning(i == 0 ? 0 : i + 1);
 
-  ui_cursor_shape();            /* may show different cursor shape */
+  ui_change_mode();            /* may show different cursor shape */
   do_digraph(-1);               /* clear digraphs */
 
   /*
@@ -1406,7 +1405,7 @@ void display_dollar(colnr_T col)
   if (!redrawing())
     return;
 
-  cursor_off();
+  ui_cursor_off();
   save_col = curwin->w_cursor.col;
   curwin->w_cursor.col = col;
   if (has_mbyte) {
@@ -1760,7 +1759,7 @@ static int has_compl_option(int dict_opt)
     if (emsg_silent == 0) {
       vim_beep();
       setcursor();
-      out_flush();
+      ui_flush();
       os_delay(2000L, false);
     }
     return FALSE;
@@ -2248,7 +2247,7 @@ void set_completion(colnr_T startcol, list_T *list)
 
   compl_curr_match = compl_first_match;
   ins_complete(Ctrl_N);
-  out_flush();
+  ui_flush();
 }
 
 
@@ -2291,11 +2290,6 @@ static int pum_wanted(void)
 {
   /* 'completeopt' must contain "menu" or "menuone" */
   if (vim_strchr(p_cot, 'm') == NULL)
-    return FALSE;
-
-  /* The display looks bad on a B&W display. */
-  if (t_colors < 8
-      )
     return FALSE;
   return TRUE;
 }
@@ -4482,7 +4476,7 @@ static int ins_complete(int c)
     edit_submode_highl = HLF_COUNT;
     showmode();
     edit_submode_extra = NULL;
-    out_flush();
+    ui_flush();
   }
 
   compl_shown_match = compl_curr_match;
@@ -6963,7 +6957,7 @@ ins_esc (
   changed_cline_bef_curs();
 
   setmouse();
-  ui_cursor_shape();            /* may show different cursor shape */
+  ui_change_mode();            /* may show different cursor shape */
 
   /*
    * When recording or for CTRL-O, need to display the new mode.
@@ -7078,7 +7072,7 @@ static void ins_insert(int replaceState)
     State = replaceState | (State & LANGMAP);
   AppendCharToRedobuff(K_INS);
   showmode();
-  ui_cursor_shape();            /* may show different cursor shape */
+  ui_change_mode();            /* may show different cursor shape */
 }
 
 /*

@@ -43,7 +43,7 @@
 #include "nvim/screen.h"
 #include "nvim/strings.h"
 #include "nvim/syntax_defs.h"
-#include "nvim/term.h"
+#include "nvim/ui.h"
 #include "nvim/os/os.h"
 #include "nvim/os/time.h"
 
@@ -5980,23 +5980,11 @@ init_highlight (
   for (i = 0; pp[i] != NULL; ++i)
     do_highlight((char_u *)pp[i], reset, TRUE);
 
-  /* Reverse looks ugly, but grey may not work for 8 colors.  Thus let it
-   * depend on the number of colors available.
-   * With 8 colors brown is equal to yellow, need to use black for Search fg
-   * to avoid Statement highlighted text disappears.
-   * Clear the attributes, needed when changing the t_Co value. */
-  if (t_colors > 8)
-    do_highlight(
-        (char_u *)(*p_bg == 'l'
-                   ? "Visual cterm=NONE ctermbg=LightGrey"
-                   : "Visual cterm=NONE ctermbg=DarkGrey"), FALSE,
-        TRUE);
-  else {
-    do_highlight((char_u *)"Visual cterm=reverse ctermbg=NONE",
-        FALSE, TRUE);
-    if (*p_bg == 'l')
-      do_highlight((char_u *)"Search ctermfg=black", FALSE, TRUE);
-  }
+  do_highlight(
+      (char_u *)(*p_bg == 'l'
+        ? "Visual cterm=NONE ctermbg=LightGrey"
+        : "Visual cterm=NONE ctermbg=DarkGrey"), FALSE,
+      TRUE);
 
   /*
    * If syntax highlighting is enabled load the highlighting for it.
@@ -6385,14 +6373,6 @@ do_highlight (
                                                9, 9, 10, 10,
                                                11, 11, 12, 12, 13,
                                                13, 14, 14, 15, -1};
-            /* for xterm with 88 colors... */
-            static int color_numbers_88[28] = {0, 4, 2, 6,
-                                               1, 5, 32, 72,
-                                               84, 84,
-                                               7, 7, 82, 82,
-                                               12, 43, 10, 61,
-                                               14, 63, 9, 74, 13,
-                                               75, 11, 78, 15, -1};
             /* for xterm with 256 colors... */
             static int color_numbers_256[28] = {0, 4, 2, 6,
                                                 1, 5, 130, 130,
@@ -6401,14 +6381,6 @@ do_highlight (
                                                 12, 81, 10, 121,
                                                 14, 159, 9, 224, 13,
                                                 225, 11, 229, 15, -1};
-            /* for terminals with less than 16 colors... */
-            static int color_numbers_8[28] = {0, 4, 2, 6,
-                                              1, 5, 3, 3,
-                                              7, 7,
-                                              7, 7, 0+8, 0+8,
-                                              4+8, 4+8, 2+8, 2+8,
-                                              6+8, 6+8, 1+8, 1+8, 5+8,
-                                              5+8, 3+8, 3+8, 7+8, -1};
 #if defined(__QNXNTO__)
             static int *color_numbers_8_qansi = color_numbers_8;
             /* On qnx, the 8 & 16 color arrays are the same */
@@ -6433,47 +6405,7 @@ do_highlight (
             /* Use the _16 table to check if its a valid color name. */
             color = color_numbers_16[i];
             if (color >= 0) {
-              if (t_colors == 8) {
-                /* t_Co is 8: use the 8 colors table */
-#if defined(__QNXNTO__)
-                color = color_numbers_8_qansi[i];
-#else
-                color = color_numbers_8[i];
-#endif
-                if (key[5] == 'F') {
-                  /* set/reset bold attribute to get light foreground
-                   * colors (on some terminals, e.g. "linux") */
-                  if (color & 8) {
-                    HL_TABLE()[idx].sg_cterm |= HL_BOLD;
-                    HL_TABLE()[idx].sg_cterm_bold = TRUE;
-                  } else
-                    HL_TABLE()[idx].sg_cterm &= ~HL_BOLD;
-                }
-                color &= 7;             /* truncate to 8 colors */
-              } else if (t_colors == 16 || t_colors == 88
-                         || t_colors == 256) {
-                /*
-                 * Guess: if the termcap entry ends in 'm', it is
-                 * probably an xterm-like terminal.  Use the changed
-                 * order for colors.
-                 */
-                if (*T_CAF != NUL)
-                  p = T_CAF;
-                else
-                  p = T_CSF;
-                if (*p != NUL && *(p + STRLEN(p) - 1) == 'm')
-                  switch (t_colors) {
-                  case 16:
-                    color = color_numbers_8[i];
-                    break;
-                  case 88:
-                    color = color_numbers_88[i];
-                    break;
-                  case 256:
-                    color = color_numbers_256[i];
-                    break;
-                  }
-              }
+              color = color_numbers_256[i];
             }
           }
           /* Add one to the argument, to avoid zero.  Zero is used for
@@ -6483,33 +6415,11 @@ do_highlight (
             if (is_normal_group) {
               cterm_normal_fg_color = color + 1;
               cterm_normal_fg_bold = (HL_TABLE()[idx].sg_cterm & HL_BOLD);
-              {
-                must_redraw = CLEAR;
-                if (termcap_active && color >= 0)
-                  term_fg_color(color);
-              }
             }
           } else {
             HL_TABLE()[idx].sg_cterm_bg = color + 1;
             if (is_normal_group) {
               cterm_normal_bg_color = color + 1;
-              {
-                must_redraw = CLEAR;
-                if (color >= 0) {
-                  if (termcap_active)
-                    term_bg_color(color);
-                  if (t_colors < 16)
-                    i = (color == 0 || color == 4);
-                  else
-                    i = (color < 7 || color == 8);
-                  /* Set the 'background' option if the value is
-                   * wrong. */
-                  if (i != (*p_bg == 'd'))
-                    set_option_value((char_u *)"bg", 0L,
-                        i ?  (char_u *)"dark"
-                        : (char_u *)"light", 0);
-                }
-              }
             }
           }
         }
@@ -6548,56 +6458,21 @@ do_highlight (
         }
       } else if (STRCMP(key, "START") == 0 || STRCMP(key, "STOP") == 0)   {
         char_u buf[100];
-        char_u      *tname;
 
         if (!init)
           HL_TABLE()[idx].sg_set |= SG_TERM;
 
         /*
-         * The "start" and "stop"  arguments can be a literal escape
-         * sequence, or a comma separated list of terminal codes.
+         * Copy characters from arg[] to buf[], translating <> codes.
          */
-        if (STRNCMP(arg, "t_", 2) == 0) {
-          off = 0;
-          buf[0] = 0;
-          while (arg[off] != NUL) {
-            /* Isolate one termcap name */
-            for (len = 0; arg[off + len] &&
-                 arg[off + len] != ','; ++len)
-              ;
-            tname = vim_strnsave(arg + off, len);
-            /* lookup the escape sequence for the item */
-            p = get_term_code(tname);
-            free(tname);
-            if (p == NULL)                  /* ignore non-existing things */
-              p = (char_u *)"";
-
-            /* Append it to the already found stuff */
-            if ((int)(STRLEN(buf) + STRLEN(p)) >= 99) {
-              EMSG2(_("E422: terminal code too long: %s"), arg);
-              error = TRUE;
-              break;
-            }
-            STRCAT(buf, p);
-
-            /* Advance to the next item */
+        for (p = arg, off = 0; off < 100 - 6 && *p; ) {
+          len = trans_special(&p, buf + off, FALSE);
+          if (len > 0)                    /* recognized special char */
             off += len;
-            if (arg[off] == ',')                    /* another one follows */
-              ++off;
-          }
-        } else {
-          /*
-           * Copy characters from arg[] to buf[], translating <> codes.
-           */
-          for (p = arg, off = 0; off < 100 - 6 && *p; ) {
-            len = trans_special(&p, buf + off, FALSE);
-            if (len > 0)                    /* recognized special char */
-              off += len;
-            else                            /* copy as normal char */
-              buf[off++] = *p++;
-          }
-          buf[off] = NUL;
+          else                            /* copy as normal char */
+            buf[off++] = *p++;
         }
+        buf[off] = NUL;
         if (error)
           break;
 
@@ -6859,34 +6734,8 @@ int hl_combine_attr(int char_attr, int prim_attr)
   if (char_attr <= HL_ALL && prim_attr <= HL_ALL)
     return char_attr | prim_attr;
 
-  if (t_colors > 1) {
-    if (char_attr > HL_ALL)
-      char_aep = syn_cterm_attr2entry(char_attr);
-    if (char_aep != NULL)
-      new_en = *char_aep;
-    else {
-      memset(&new_en, 0, sizeof(new_en));
-      if (char_attr <= HL_ALL)
-        new_en.ae_attr = char_attr;
-    }
-
-    if (prim_attr <= HL_ALL)
-      new_en.ae_attr |= prim_attr;
-    else {
-      spell_aep = syn_cterm_attr2entry(prim_attr);
-      if (spell_aep != NULL) {
-        new_en.ae_attr |= spell_aep->ae_attr;
-        if (spell_aep->ae_u.cterm.fg_color > 0)
-          new_en.ae_u.cterm.fg_color = spell_aep->ae_u.cterm.fg_color;
-        if (spell_aep->ae_u.cterm.bg_color > 0)
-          new_en.ae_u.cterm.bg_color = spell_aep->ae_u.cterm.bg_color;
-      }
-    }
-    return get_attr_entry(&cterm_attr_table, &new_en);
-  }
-
   if (char_attr > HL_ALL)
-    char_aep = syn_term_attr2entry(char_attr);
+    char_aep = syn_cterm_attr2entry(char_attr);
   if (char_aep != NULL)
     new_en = *char_aep;
   else {
@@ -6898,16 +6747,16 @@ int hl_combine_attr(int char_attr, int prim_attr)
   if (prim_attr <= HL_ALL)
     new_en.ae_attr |= prim_attr;
   else {
-    spell_aep = syn_term_attr2entry(prim_attr);
+    spell_aep = syn_cterm_attr2entry(prim_attr);
     if (spell_aep != NULL) {
       new_en.ae_attr |= spell_aep->ae_attr;
-      if (spell_aep->ae_u.term.start != NULL) {
-        new_en.ae_u.term.start = spell_aep->ae_u.term.start;
-        new_en.ae_u.term.stop = spell_aep->ae_u.term.stop;
-      }
+      if (spell_aep->ae_u.cterm.fg_color > 0)
+        new_en.ae_u.cterm.fg_color = spell_aep->ae_u.cterm.fg_color;
+      if (spell_aep->ae_u.cterm.bg_color > 0)
+        new_en.ae_u.cterm.bg_color = spell_aep->ae_u.cterm.bg_color;
     }
   }
-  return get_attr_entry(&term_attr_table, &new_en);
+  return get_attr_entry(&cterm_attr_table, &new_en);
 }
 
 
@@ -6917,12 +6766,7 @@ int hl_combine_attr(int char_attr, int prim_attr)
  */
 int syn_attr2attr(int attr)
 {
-  attrentry_T *aep;
-
-  if (t_colors > 1)
-    aep = syn_cterm_attr2entry(attr);
-  else
-    aep = syn_term_attr2entry(attr);
+  attrentry_T *aep = syn_cterm_attr2entry(attr);
 
   if (aep == NULL)          /* highlighting not set */
     return 0;
@@ -7340,11 +7184,7 @@ int syn_id2attr(int hl_id)
 
   hl_id = syn_get_final_id(hl_id);
   sgp = &HL_TABLE()[hl_id - 1];             /* index is ID minus one */
-
-  if (t_colors > 1)
-    attr = sgp->sg_cterm_attr;
-  else
-    attr = sgp->sg_term_attr;
+  attr = sgp->sg_cterm_attr;
 
   return attr;
 }
@@ -7605,7 +7445,7 @@ static void highlight_list_two(int cnt, int attr)
 {
   msg_puts_attr((char_u *)&("N \bI \b!  \b"[cnt / 11]), attr);
   msg_clr_eos();
-  out_flush();
+  ui_flush();
   os_delay(cnt == 99 ? 40L : (long)cnt * 50L, false);
 }
 

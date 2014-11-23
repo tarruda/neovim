@@ -3,8 +3,10 @@
 #include "nvim/mouse.h"
 #include "nvim/vim.h"
 #include "nvim/screen.h"
+#include "nvim/strings.h"
+#include "nvim/ascii.h"
 #include "nvim/window.h"
-#include "nvim/term.h"
+#include "nvim/ui.h"
 #include "nvim/fold.h"
 #include "nvim/diff.h"
 #include "nvim/move.h"
@@ -165,11 +167,6 @@ retnomove:
     // (MOUSE_FOCUS was set above if we dragged first).
     if (dragwin == NULL || (flags & MOUSE_RELEASED))
       win_enter(wp, true);                      // can make wp invalid!
-# ifdef CHECK_DOUBLE_CLICK
-    // set topline, to be able to check for double click ourselves
-    if (curwin != old_curwin)
-      set_mouse_topline(curwin);
-# endif
     if (on_status_line) {                       // In (or below) status line
       // Don't use start_arrow() if we're in the same window
       if (curwin == old_curwin)
@@ -435,4 +432,65 @@ win_T *mouse_find_win(int *rowp, int *colp)
     }
   }
   return fp->fr_win;
+}
+
+/*
+ * setmouse() - switch mouse on/off depending on current mode and 'mouse'
+ */
+void setmouse(void)
+{
+  int checkfor;
+
+
+  /* be quick when mouse is off */
+  if (*p_mouse == NUL)
+    return;
+
+  if (VIsual_active)
+    checkfor = MOUSE_VISUAL;
+  else if (State == HITRETURN || State == ASKMORE || State == SETWSIZE)
+    checkfor = MOUSE_RETURN;
+  else if (State & INSERT)
+    checkfor = MOUSE_INSERT;
+  else if (State & CMDLINE)
+    checkfor = MOUSE_COMMAND;
+  else if (State == CONFIRM || State == EXTERNCMD)
+    checkfor = ' ';     /* don't use mouse for ":confirm" or ":!cmd" */
+  else
+    checkfor = MOUSE_NORMAL;        /* assume normal mode */
+
+  if (mouse_has(checkfor))
+    ui_mouse_on();
+  else
+    ui_mouse_off();
+}
+
+/*
+ * Return TRUE if
+ * - "c" is in 'mouse', or
+ * - 'a' is in 'mouse' and "c" is in MOUSE_A, or
+ * - the current buffer is a help file and 'h' is in 'mouse' and we are in a
+ *   normal editing mode (not at hit-return message).
+ */
+int mouse_has(int c)
+{
+  for (char_u *p = p_mouse; *p; ++p)
+    switch (*p) {
+    case 'a': if (vim_strchr((char_u *)MOUSE_A, c) != NULL)
+        return TRUE;
+      break;
+    case MOUSE_HELP: if (c != MOUSE_RETURN && curbuf->b_help)
+        return TRUE;
+      break;
+    default: if (c == *p) return TRUE; break;
+    }
+  return FALSE;
+}
+
+/*
+ * Return TRUE when 'mousemodel' is set to "popup" or "popup_setpos".
+ */
+int mouse_model_popup(void)
+{
+  return p_mousem[0] == 'p';
 }
