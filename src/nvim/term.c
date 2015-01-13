@@ -2207,7 +2207,11 @@ void win_new_shellsize(void)
  */
 void shell_resized(void)
 {
-  screen_resize(0, 0, FALSE);
+  if (abstract_ui) {
+    ui_refresh();
+  } else {
+    screen_resize(0, 0, FALSE);
+  }
 }
 
 /*
