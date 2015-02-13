@@ -61,7 +61,6 @@
 #cmakedefine HAVE_TERMCAP_H
 #cmakedefine HAVE_TERMIOS_H
 #cmakedefine HAVE_TERMIO_H
-#define HAVE_TGETENT 1
 #cmakedefine HAVE_UNISTD_H
 #define HAVE_UP_BC_PC 1
 #cmakedefine HAVE_UTIME
@@ -70,7 +69,6 @@
 #cmakedefine HAVE_WORKING_LIBINTL
 #define RETSIGTYPE void
 #define SIGRETURN return
-#define TERMINFO 1
 #define TGETENT_ZERO_ERR 0
 #define TIME_WITH_SYS_TIME 1
 #cmakedefine UNIX

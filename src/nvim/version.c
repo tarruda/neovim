@@ -139,17 +139,9 @@ static char *(features[]) = {
 #if defined(UNIX)
 
   // only Unix can have terminfo instead of termcap
-# ifdef TERMINFO
-  "+terminfo",
-# else // ifdef TERMINFO
   "-terminfo",
-# endif // ifdef TERMINFO
 #else   // unix always includes termcap support
-# ifdef HAVE_TGETENT
-  "+tgetent",
-# else  // ifdef HAVE_TGETENT
   "-tgetent",
-# endif  // ifdef HAVE_TGETENT
 #endif  // if defined(UNIX)
   "+termresponse",
   "+textobjects",
@@ -812,19 +804,6 @@ static char *(extra_patches[]) = {
   // Add your patch description below this line
   NULL
 };
-
-int highest_patch(void)
-{
-  int i;
-  int h = 0;
-
-  for (i = 0; included_patches[i] != 0; ++i) {
-    if (included_patches[i] > h) {
-      h = included_patches[i];
-    }
-  }
-  return h;
-}
 
 /// Checks whether patch `n` has been included.
 ///

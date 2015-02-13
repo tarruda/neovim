@@ -1232,9 +1232,6 @@ do_shell (
    * avoid having to type return below.
    */
   msg_putchar('\r');                    /* put cursor at start of line */
-  if (!autocmd_busy) {
-    stoptermcap();
-  }
   msg_putchar('\n');                    /* may shift screen one line up */
 
   /* warning message before calling the shell */
@@ -1292,8 +1289,6 @@ do_shell (
       wait_return(msg_silent == 0);
       no_wait_return = save_nwr;
     }
-
-    starttermcap();             /* start termcap if not done by wait_return() */
   }
 
   /* display any error messages now */
@@ -6197,52 +6192,6 @@ static enum
     EXP_UNPLACE,	/* expand :sign unplace" */
     EXP_SIGN_NAMES	/* expand with name of placed signs */
 } expand_what;
-
-/*
- * Function given to ExpandGeneric() to obtain the sign command
- * expansion.
- */
-char_u * get_sign_name(expand_T *xp, int idx)
-{
-    sign_T	*sp;
-    int		current_idx;
-
-    switch (expand_what)
-    {
-    case EXP_SUBCMD:
-	return (char_u *)cmds[idx];
-    case EXP_DEFINE:
-	{
-	    char *define_arg[] =
-	    {
-		"icon=", "linehl=", "text=", "texthl=", NULL
-	    };
-	    return (char_u *)define_arg[idx];
-	}
-    case EXP_PLACE:
-	{
-	    char *place_arg[] =
-	    {
-		"line=", "name=", "file=", "buffer=", NULL
-	    };
-	    return (char_u *)place_arg[idx];
-	}
-    case EXP_UNPLACE:
-	{
-	    char *unplace_arg[] = { "file=", "buffer=", NULL };
-	    return (char_u *)unplace_arg[idx];
-	}
-    case EXP_SIGN_NAMES:
-	/* Complete with name of signs already defined */
-	current_idx = 0;
-	for (sp = first_sign; sp != NULL; sp = sp->sn_next)
-	    if (current_idx++ == idx)
-		return sp->sn_name;
-	return NULL;
-    default:
-	return NULL;
-    }
-}
 
 /*
  * Handle command line completion for :sign command.
