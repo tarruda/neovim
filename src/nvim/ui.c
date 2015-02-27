@@ -45,6 +45,7 @@ static struct {
 } sr;
 static int current_attr_code = 0;
 static bool cursor_enabled = true, pending_cursor_update = false;
+static bool cursor_locked = false;
 static int height, width;
 
 // This set of macros allow us to use UI_CALL to invoke any function on
@@ -152,6 +153,9 @@ void ui_resize(int new_width, int new_height)
 
 void ui_cursor_on(void)
 {
+  if (cursor_locked) {
+    return;
+  }
   if (!cursor_enabled) {
     UI_CALL(cursor_on);
     cursor_enabled = true;
@@ -160,12 +164,25 @@ void ui_cursor_on(void)
 
 void ui_cursor_off(void)
 {
+  if (cursor_locked) {
+    return;
+  }
   if (full_screen) {
     if (cursor_enabled) {
       UI_CALL(cursor_off);
     }
     cursor_enabled = false;
   }
+}
+
+void ui_lock_cursor_state(void)
+{
+  cursor_locked = true;
+}
+
+void ui_unlock_cursor_state(void)
+{
+  cursor_locked = false;
 }
 
 void ui_mouse_on(void)
