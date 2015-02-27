@@ -6,7 +6,6 @@
 #include <unistd.h>
 #include <termios.h>
 #include <sys/types.h>
-#include <sys/wait.h>
 #include <sys/ioctl.h>
 
 // forkpty is not in POSIX, so headers are platform-specific
@@ -33,7 +32,6 @@
 typedef struct {
   struct winsize winsize;
   uv_pipe_t proc_stdin, proc_stdout, proc_stderr;
-  uv_signal_t schld;
   int tty_fd;
 } PtyProcess;
 
@@ -102,9 +100,6 @@ bool pty_process_spawn(Job *job)
     uv_pipe_open(&ptyproc->proc_stderr, dup(master));
   }
 
-  uv_signal_init(uv_default_loop(), &ptyproc->schld);
-  uv_signal_start(&ptyproc->schld, chld_handler, SIGCHLD);
-  ptyproc->schld.data = job;
   ptyproc->tty_fd = master;
   job->pid = pid;
   return true;
@@ -112,9 +107,6 @@ bool pty_process_spawn(Job *job)
 
 void pty_process_close(Job *job)
 {
-  PtyProcess *ptyproc = job->process;
-  uv_signal_stop(&ptyproc->schld);
-  uv_close((uv_handle_t *)&ptyproc->schld, NULL);
   job_close_streams(job);
   job_decref(job);
 }
@@ -144,31 +136,6 @@ static void init_child(Job *job)
   setenv("TERM", job->opts.term_name ? job->opts.term_name : "ansi", 1);
   execvp(job->opts.argv[0], job->opts.argv);
   fprintf(stderr, "execvp failed: %s\n", strerror(errno));
-}
-
-static void chld_handler(uv_signal_t *handle, int signum)
-{
-  Job *job = handle->data;
-  int stat = 0;
-
-  if (waitpid(job->pid, &stat, 0) < 0) {
-    fprintf(stderr, "Waiting for pid %d failed: %s\n", job->pid,
-        strerror(errno));
-    return;
-  }
-
-  if (WIFSTOPPED(stat) || WIFCONTINUED(stat)) {
-    // Did not exit
-    return;
-  }
-
-  if (WIFEXITED(stat)) {
-    job->status = WEXITSTATUS(stat);
-  } else if (WIFSIGNALED(stat)) {
-    job->status = WTERMSIG(stat);
-  }
-
-  pty_process_close(job);
 }
 
 static void init_termios(struct termios *termios)
