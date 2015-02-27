@@ -2236,6 +2236,11 @@ return {
     func='ex_tearoff',
   },
   {
+    command='terminal',
+    flags=bit.bor(EXTRA, BANG, TRLBAR, CMDWIN),
+    func='ex_terminal',
+  },
+  {
     command='tfirst',
     flags=bit.bor(RANGE, NOTADR, BANG, TRLBAR, ZEROR),
     func='ex_tag',
