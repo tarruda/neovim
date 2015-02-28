@@ -44,6 +44,7 @@
 #include "nvim/screen.h"
 #include "nvim/strings.h"
 #include "nvim/syntax_defs.h"
+#include "nvim/terminal.h"
 #include "nvim/ui.h"
 #include "nvim/os/os.h"
 #include "nvim/os/time.h"
@@ -6629,7 +6630,7 @@ static garray_T attr_table = GA_EMPTY_INIT_VALUE;
  * if the combination is new.
  * Return 0 for error.
  */
-static int get_attr_entry(attrentry_T *aep)
+int get_attr_entry(attrentry_T *aep)
 {
   garray_T *table = &attr_table;
   attrentry_T *taep;

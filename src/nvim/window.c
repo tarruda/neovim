@@ -52,6 +52,7 @@
 #include "nvim/search.h"
 #include "nvim/strings.h"
 #include "nvim/syntax.h"
+#include "nvim/terminal.h"
 #include "nvim/undo.h"
 #include "nvim/os/os.h"
 
@@ -4692,6 +4693,11 @@ void win_new_height(win_T *wp, int height)
   redraw_win_later(wp, SOME_VALID);
   wp->w_redr_status = TRUE;
   invalidate_botline_win(wp);
+
+  if (wp->w_buffer->terminal) {
+    terminal_resize(wp->w_buffer->terminal, 0, wp->w_height);
+    redraw_win_later(wp, CLEAR);
+  }
 }
 
 /*
@@ -4709,6 +4715,11 @@ void win_new_width(win_T *wp, int width)
   }
   redraw_win_later(wp, NOT_VALID);
   wp->w_redr_status = TRUE;
+
+  if (wp->w_buffer->terminal) {
+    terminal_resize(wp->w_buffer->terminal, wp->w_width, 0);
+    redraw_win_later(wp, CLEAR);
+  }
 }
 
 void win_comp_scroll(win_T *wp)
