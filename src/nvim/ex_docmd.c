@@ -71,6 +71,9 @@
 #include "nvim/os/time.h"
 #include "nvim/ex_cmds_defs.h"
 #include "nvim/mouse.h"
+#include "nvim/os/job.h"
+#include "nvim/os/rstream.h"
+#include "nvim/os/wstream.h"
 
 static int quitmore = 0;
 static int ex_pressedreturn = FALSE;
@@ -8873,4 +8876,72 @@ static void ex_folddo(exarg_T *eap)
   /* Execute the command on the marked lines. */
   global_exe(eap->arg);
   ml_clearmarked();        /* clear rest of the marks */
+}
+
+static void ex_terminal(exarg_T *eap)
+{
+  Terminal *term = terminal_open(curwin->w_width, curwin->w_height,
+      eap->forceit);
+
+  if (!term) {
+    return;
+  }
+
+  // build argument vector from the :terminal command line
+  char cmd[256];
+  snprintf(cmd, sizeof(cmd), "%s", eap->arg);
+  JobOptions opts = JOB_OPTIONS_INIT;
+  opts.data = term;
+  opts.argv = shell_build_argv(!strcmp(cmd, "") ? NULL : cmd, NULL);
+  opts.stdout_cb = on_job_output;
+  opts.stderr_cb = on_job_output;
+  opts.exit_cb = on_job_exit;
+  opts.pty = true;
+  opts.width = curwin->w_width;
+  opts.height = curwin->w_height;
+  opts.term_name = xstrdup("xterm-256color");
+  int status;
+  Job *job = job_start(opts, &status);
+
+  char title[256];
+  snprintf(title, sizeof(title), "[(pid: %d) %s]", job_pid(job),
+      !strcmp(cmd, "") ? (char *)p_sh : cmd);
+  terminal_set_title(term, title);
+  terminal_set_write_cb(term, term_write, job);
+  terminal_set_resize_cb(term, term_resize, job);
+
+  if (status == 0) {
+    EMSG(e_jobtblfull);
+  } else if (status < 0) {
+    EMSG(e_jobexe);
+  }
+
+  ins_char_typebuf('i'); // focus the terminal
+}
+
+static void term_write(void *data, char *buf, size_t size)
+{
+  Job *job = data;
+  WBuffer *wbuf = wstream_new_buffer(xmemdup(buf, size), size, 1, free);
+  job_write(job, wbuf);
+}
+
+static void term_resize(void *data, uint16_t width, uint16_t height)
+{
+  job_resize(data, width, height);
+}
+
+static void on_job_output(RStream *rstream, void *data, bool eof)
+{
+  if (!eof) {
+    char *ptr = rstream_read_ptr(rstream);
+    size_t len = rstream_pending(rstream);
+    terminal_receive(job_data(data), ptr, len);
+    rbuffer_consumed(rstream_buffer(rstream), len);
+  }
+}
+
+static void on_job_exit(Job *job, void *data)
+{
+  terminal_exit(data);
 }

@@ -2600,6 +2600,13 @@ win_line (
     off += col;
   }
 
+  // does anyone ever need a terminal with more than 1024 columns?
+  int term_attrs[1024] = {0};
+  if (wp->w_buffer->terminal) {
+    terminal_get_line_attributes(wp->w_buffer->terminal, lnum, term_attrs);
+    extra_check = true;
+  }
+
   /*
    * Repeat for the whole displayed line.
    */
@@ -3238,6 +3245,8 @@ win_line (
             syntax_flags = 0;
           else
             syntax_flags = get_syntax_info(&syntax_seqnr);
+        } else if (!attr_pri) {
+          char_attr = 0;
         }
 
         /* Check spelling (unless at the end of the line).
@@ -3315,6 +3324,11 @@ win_line (
           else
             char_attr = hl_combine_attr(spell_attr, char_attr);
         }
+
+        if (wp->w_buffer->terminal) {
+          char_attr = hl_combine_attr(char_attr, term_attrs[vcol]);
+        }
+
         /*
          * Found last space before word: check for line break.
          */
@@ -3812,6 +3826,18 @@ win_line (
         }
       }
 
+      if (wp->w_buffer->terminal) {
+        // terminal buffers may need to highlight beyond the end of the
+        // logical line
+        while (col < wp->w_width) {
+          ScreenLines[off] = ' ';
+          if (enc_utf8) {
+            ScreenLinesUC[off] = 0;
+          }
+          ScreenAttrs[off++] = term_attrs[vcol++];
+          col++;
+        }
+      }
       SCREEN_LINE(screen_row, wp->w_wincol, col, wp->w_width, wp->w_p_rl);
       row++;
 
