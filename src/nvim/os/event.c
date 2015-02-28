@@ -20,6 +20,7 @@
 #include "nvim/misc2.h"
 #include "nvim/ui.h"
 #include "nvim/screen.h"
+#include "nvim/terminal.h"
 
 #include "nvim/lib/klist.h"
 
@@ -63,6 +64,7 @@ void event_init(void)
   // finish mspgack-rpc initialization
   channel_init();
   server_init();
+  terminal_init();
 }
 
 void event_teardown(void)

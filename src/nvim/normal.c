@@ -6981,7 +6981,7 @@ static void nv_edit(cmdarg_T *cap)
                || VIsual_active
                )) {
     nv_object(cap);
-  } else if (!curbuf->b_p_ma && !p_im) {
+  } else if (!curbuf->b_p_ma && !p_im && !curbuf->terminal) {
     /* Only give this error when 'insertmode' is off. */
     EMSG(_(e_modifiable));
     clearop(cap->oap);
