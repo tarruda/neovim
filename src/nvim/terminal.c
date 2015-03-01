@@ -443,6 +443,7 @@ static int term_sb_push(int cols, const VTermScreenCell *cells, void *data)
   linenr_T src_linenr = (linenr_T)term->sb_current + 1;
   linenr_T tgt_linenr = (linenr_T)term->sb_current;
   ml_append(tgt_linenr, ml_get(src_linenr), 0, false);
+  ml_delete(src_linenr, false);
   changed_lines(tgt_linenr, 1, src_linenr, 1);
   // switch back
   restore_win_for_buf(save_curwin, save_curtab, save_curbuf);

@@ -311,13 +311,7 @@ close_buffer (
    * The caller must take care of NOT deleting/freeing when 'bufhidden' is
    * "hide" (otherwise we could never free or delete a buffer).
    */
-  if (buf->terminal) {
-    // terminal buffers can only be wiped
-    terminal_close(buf->terminal);
-    del_buf = true;
-    unload_buf = true;
-    wipe_buf = true;
-  } else if (buf->b_p_bh[0] == 'd') {          /* 'bufhidden' == "delete" */
+  if (buf->b_p_bh[0] == 'd') {          /* 'bufhidden' == "delete" */
     del_buf = true;
     unload_buf = true;
   } else if (buf->b_p_bh[0] == 'w') { /* 'bufhidden' == "wipe" */
@@ -326,6 +320,14 @@ close_buffer (
     wipe_buf = true;
   } else if (buf->b_p_bh[0] == 'u')     /* 'bufhidden' == "unload" */
     unload_buf = true;
+
+  if (buf->terminal && (unload_buf || del_buf || wipe_buf)) {
+    // terminal buffers can only be wiped
+    terminal_close(buf->terminal);
+    unload_buf = true;
+    del_buf = true;
+    wipe_buf = true;
+  } 
 
   if (win_valid(win)) {
     /* Set b_last_cursor when closing the last window for the buffer.
