@@ -176,13 +176,15 @@ void terminal_resize(Terminal *term, uint16_t width, uint16_t height)
 
 void terminal_enter(Terminal *term, bool process_deferred)
 {
+  term->focused = true;
+  int save_state = State;
+  State = TERM_FOCUS;
   // hide nvim cursor and show terminal's
   ui_cursor_off();
   ui_lock_cursor_state();
   // disable ctrl+c
   bool save_mapped_ctrl_c = mapped_ctrl_c;
   mapped_ctrl_c = true;
-  term->focused = true;
   // save the focused window while in this mode
   term->curwin = curwin;
   // go to the bottom
@@ -196,11 +198,7 @@ void terminal_enter(Terminal *term, bool process_deferred)
       event_enable_deferred();
     }
 
-    no_mapping++;
-    allow_keys++;
     c = safe_vgetc();
-    no_mapping--;
-    allow_keys--;
 
     if (process_deferred) {
       event_disable_deferred();
@@ -209,7 +207,12 @@ void terminal_enter(Terminal *term, bool process_deferred)
     if (c == K_EVENT) {
       event_process();
     } else if (c == Ctrl_W) {
-      break;
+      c = safe_vgetc();
+      if (c == ESC) {
+        break;
+      } else {
+        terminal_send_key(term, c);
+      }
     } else if (!term->exited) {
       terminal_send_key(term, c);
     } else {
@@ -224,6 +227,7 @@ void terminal_enter(Terminal *term, bool process_deferred)
   }
 
   term->focused = false;
+  State = save_state;
   ui_unlock_cursor_state();
   ui_cursor_on();
   term->curwin = NULL;

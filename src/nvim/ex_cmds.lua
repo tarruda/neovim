@@ -2261,6 +2261,16 @@ return {
     func='ex_tag',
   },
   {
+    command='tmap',
+    flags=bit.bor(EXTRA, TRLBAR, NOTRLCOM, USECTRLV, CMDWIN),
+    func='ex_map',
+  },
+  {
+    command='tmapclear',
+    flags=bit.bor(EXTRA, TRLBAR, CMDWIN),
+    func='ex_mapclear',
+  },
+  {
     command='tmenu',
     flags=bit.bor(RANGE, NOTADR, ZEROR, EXTRA, TRLBAR, NOTRLCOM, USECTRLV, CMDWIN),
     func='ex_menu',
@@ -2269,6 +2279,11 @@ return {
     command='tnext',
     flags=bit.bor(RANGE, NOTADR, BANG, TRLBAR, ZEROR),
     func='ex_tag',
+  },
+  {
+    command='tnoremap',
+    flags=bit.bor(EXTRA, TRLBAR, NOTRLCOM, USECTRLV, CMDWIN),
+    func='ex_map',
   },
   {
     command='topleft',
@@ -2294,6 +2309,11 @@ return {
     command='tselect',
     flags=bit.bor(BANG, TRLBAR, WORD1),
     func='ex_tag',
+  },
+  {
+    command='tunmap',
+    flags=bit.bor(EXTRA, TRLBAR, NOTRLCOM, USECTRLV, CMDWIN),
+    func='ex_unmap',
   },
   {
     command='tunmenu',
