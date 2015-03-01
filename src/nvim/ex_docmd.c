@@ -8880,9 +8880,13 @@ static void ex_folddo(exarg_T *eap)
 
 static void ex_terminal(exarg_T *eap)
 {
-  Terminal *term = terminal_open(curwin->w_width, curwin->w_height,
-      eap->forceit);
-
+  TerminalOptions topts = TERMINAL_OPTIONS_INIT;
+  topts.width = curwin->w_width;
+  topts.height = curwin->w_height;
+  topts.write_cb = term_write;
+  topts.resize_cb = term_resize;
+  topts.close_cb = term_close;
+  Terminal *term = terminal_open(topts);
   if (!term) {
     return;
   }
@@ -8904,11 +8908,10 @@ static void ex_terminal(exarg_T *eap)
   Job *job = job_start(opts, &status);
 
   char title[256];
-  snprintf(title, sizeof(title), "[(pid: %d) %s]", job_pid(job),
-      !strcmp(cmd, "") ? (char *)p_sh : cmd);
+  snprintf(title, sizeof(title), "[%s(pid: %d)]", 
+      !strcmp(cmd, "") ? (char *)p_sh : cmd, job_pid(job));
   terminal_set_title(term, title);
-  terminal_set_write_cb(term, term_write, job);
-  terminal_set_resize_cb(term, term_resize, job);
+  terminal_set_data(term, job);
 
   if (status == 0) {
     EMSG(e_jobtblfull);
@@ -8919,16 +8922,22 @@ static void ex_terminal(exarg_T *eap)
   ins_char_typebuf('i'); // focus the terminal
 }
 
-static void term_write(void *data, char *buf, size_t size)
+static void term_write(char *buf, size_t size, void *data)
 {
   Job *job = data;
   WBuffer *wbuf = wstream_new_buffer(xmemdup(buf, size), size, 1, free);
   job_write(job, wbuf);
 }
 
-static void term_resize(void *data, uint16_t width, uint16_t height)
+static void term_resize(uint16_t width, uint16_t height, void *data)
 {
   job_resize(data, width, height);
+}
+
+static void term_close(void *data)
+{
+  job_close_streams(data);
+  job_stop(data);
 }
 
 static void on_job_output(RStream *rstream, void *data, bool eof)

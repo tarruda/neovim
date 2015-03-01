@@ -56,10 +56,8 @@ struct terminal {
   win_T *curwin;
   VTerm *vt;
   VTermScreen *vts;
-  terminal_write_cb write_cb;
-  void *write_data;
-  terminal_resize_cb resize_cb;
-  void *resize_data;
+  TerminalOptions opts;
+  void *data;
   // program exited
   bool exited;
   // input focused
@@ -68,9 +66,6 @@ struct terminal {
   bool mouse_enabled, altscreen;
   // invalid rows
   int invalid_start, invalid_end;
-  // cursor highlight information
-  int cursor_hl_group_id;
-  int cursor_hl_pos_id;
   uint16_t new_width, new_height;
   struct {
     int row, col;
@@ -98,10 +93,11 @@ void terminal_init(void)
   initialize_color_indexes();
 }
 
-Terminal *terminal_open(uint16_t width, uint16_t height, bool force)
+Terminal *terminal_open(TerminalOptions opts)
 {
-  int ecmd_flags = ECMD_HIDE | (force ? ECMD_FORCEIT : 0);
-  (void)do_ecmd(0, NULL, NULL, NULL, ECMD_ONE, ecmd_flags, NULL);
+  if (do_ecmd(0, NULL, NULL, NULL, ECMD_ONE, 0, NULL) == FAIL) {
+    return NULL;
+  }
   set_option_value((uint8_t *)"buftype", 0, (uint8_t *)"nofile", OPT_LOCAL);
   set_option_value((uint8_t *)"swapfile", false, NULL, OPT_LOCAL);
   set_option_value((uint8_t *)"bufhidden", 0, (uint8_t *)"hide", OPT_LOCAL);
@@ -116,10 +112,10 @@ Terminal *terminal_open(uint16_t width, uint16_t height, bool force)
   redraw_later(NOT_VALID);
   // Create a new terminal instance and configure it
   Terminal *rv = xcalloc(1, sizeof(Terminal));
+  rv->opts = opts;
   rv->sb_size = 1000;
   rv->sb_current = 0;
   rv->sb_buffer = xmalloc(sizeof(ScrollbackLine *) * rv->sb_size);
-  rv->cursor_hl_group_id = syn_name2id((uint8_t *)"TerminalCursor");
   rv->cursor.row = 0;
   rv->cursor.col = 0;
   rv->cursor.visible = true;
@@ -127,7 +123,7 @@ Terminal *terminal_open(uint16_t width, uint16_t height, bool force)
   rv->buf= curbuf;
   curbuf->terminal = rv;
   // Create VTerm
-  rv->vt = vterm_new(height, width);
+  rv->vt = vterm_new(opts.height, opts.width);
   vterm_set_utf8(rv->vt, 1);
   // Setup state
   VTermState *state = vterm_obtain_state(rv->vt);
@@ -214,7 +210,7 @@ void terminal_enter(Terminal *term, bool process_deferred)
 
     if (c == K_EVENT) {
       event_process();
-    } else if (c == Ctrl_W) {
+    } else if (c == Ctrl_G) {
       c = safe_vgetc();
       if (c == ESC) {
         break;
@@ -250,21 +246,24 @@ void terminal_enter(Terminal *term, bool process_deferred)
   }
 }
 
-void terminal_set_write_cb(Terminal *term, terminal_write_cb cb, void *data)
+void terminal_set_data(Terminal *term, void *data)
 {
-  term->write_cb = cb;
-  term->write_data = data;
+  term->data = data;
 }
 
-void terminal_set_resize_cb(Terminal *term, terminal_resize_cb cb, void *data)
+void terminal_close(Terminal *term)
 {
-  term->resize_cb = cb;
-  term->resize_data = data;
+  term->buf = NULL;
+  if (!term->exited) {
+    // terminal_exited was called by the user of this instance, no need to call
+    // close_cb
+    term->opts.close_cb(term->data);
+  }
 }
 
 void terminal_send(Terminal *term, char *data, size_t size)
 {
-  term->write_cb(term->write_data, data, size);
+  term->opts.write_cb(data, size, term->data);
 }
 
 void terminal_send_key(Terminal *term, int c)
@@ -541,6 +540,10 @@ static void on_damage(Event event)
 static void on_resize(Event event)
 {
   Terminal *term = event.data;
+  if (!term->buf || exiting) {
+    // term was closed
+    return;
+  }
 
   int width, height;
   vterm_get_size(term->vt, &height, &width);
@@ -569,12 +572,15 @@ static void on_resize(Event event)
     adjust_topline(term, false);
   }
 
-  term->resize_cb(term->resize_data,
-      (uint16_t)term->new_width, (uint16_t)term->new_height);
+  term->opts.resize_cb((uint16_t)term->new_width,
+      (uint16_t)term->new_height, term->data);
 }
 
 static void refresh(Terminal *term)
 {
+  if (!term->buf || exiting) {
+    return;
+  }
   buf_T *save_curbuf = NULL;
   win_T *save_curwin = NULL;
   tabpage_T *save_curtab = NULL;

@@ -311,7 +311,13 @@ close_buffer (
    * The caller must take care of NOT deleting/freeing when 'bufhidden' is
    * "hide" (otherwise we could never free or delete a buffer).
    */
-  if (buf->b_p_bh[0] == 'd') {          /* 'bufhidden' == "delete" */
+  if (buf->terminal) {
+    // terminal buffers can only be wiped
+    terminal_close(buf->terminal);
+    del_buf = true;
+    unload_buf = true;
+    wipe_buf = true;
+  } else if (buf->b_p_bh[0] == 'd') {          /* 'bufhidden' == "delete" */
     del_buf = true;
     unload_buf = true;
   } else if (buf->b_p_bh[0] == 'w') { /* 'bufhidden' == "wipe" */
@@ -924,8 +930,8 @@ do_buffer (
     if (action != DOBUF_WIPE && buf->b_ml.ml_mfp == NULL && !buf->b_p_bl)
       return FAIL;
 
-    if (!forceit && bufIsChanged(buf)) {
-      if ((p_confirm || cmdmod.confirm) && p_write) {
+    if (!forceit && (buf->terminal || bufIsChanged(buf))) {
+      if ((p_confirm || cmdmod.confirm) && p_write && !buf->terminal) {
         dialog_changed(buf, FALSE);
         if (!buf_valid(buf))
           /* Autocommand deleted buffer, oops!  It's not changed
@@ -936,9 +942,13 @@ do_buffer (
         if (bufIsChanged(buf))
           return FAIL;
       } else {
-        EMSGN(_("E89: No write since last change for buffer %" PRId64
-                " (add ! to override)"),
-              buf->b_fnum);
+        if (buf->terminal) {
+          EMSGN(_("E89: %s will be killed(add ! to override)"), buf->b_fname);
+        } else {
+          EMSGN(_("E89: No write since last change for buffer %" PRId64
+                  " (add ! to override)"),
+                buf->b_fnum);
+        }
         return FAIL;
       }
     }
