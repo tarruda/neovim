@@ -442,8 +442,7 @@ static int term_sb_push(int cols, const VTermScreenCell *cells, void *data)
   // over it
   linenr_T src_linenr = (linenr_T)term->sb_current + 1;
   linenr_T tgt_linenr = (linenr_T)term->sb_current;
-  char *line = xstrdup((char *)ml_get(src_linenr));
-  ml_append(tgt_linenr, (uint8_t *)line, 0, false);
+  ml_append(tgt_linenr, ml_get(src_linenr), 0, false);
   changed_lines(tgt_linenr, 1, src_linenr, 1);
   // switch back
   restore_win_for_buf(save_curwin, save_curtab, save_curbuf);
@@ -613,15 +612,15 @@ static void refresh(Terminal *term)
         }
       }
     }
-    *ptr++ = 0;
+    // trim trailing whitespace
+    term->textbuf[line_size] = 0;
 
-    char *line = xmemdupz(term->textbuf, line_size);
     int linenr = p.row + (int)term->sb_current + 1;
 
     if (linenr <= term->buf->b_ml.ml_line_count) {
-      ml_replace(linenr, (uint8_t *)line, false);
+      ml_replace(linenr, (uint8_t *)term->textbuf, true);
     } else {
-      ml_append(linenr - 1, (uint8_t *)line, 0, false);
+      ml_append(linenr - 1, (uint8_t *)term->textbuf, 0, false);
       added++;
     }
   }
