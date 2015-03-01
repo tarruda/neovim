@@ -111,7 +111,6 @@ Terminal *terminal_open(uint16_t width, uint16_t height, bool force)
   set_option_value((uint8_t *)"number", false, NULL, OPT_LOCAL);
   set_option_value((uint8_t *)"relativenumber", false, NULL, OPT_LOCAL);
   set_option_value((uint8_t *)"textwidth", 0, NULL, OPT_LOCAL);
-  curbuf->b_p_ma = false; curbuf->b_p_ro = true;
   RESET_BINDING(curwin);
   invalidate_botline();
   redraw_later(NOT_VALID);
@@ -164,6 +163,15 @@ void terminal_resize(Terminal *term, uint16_t width, uint16_t height)
   if (!height) {
     height = (uint16_t)curheight;
   }
+  
+  // the actual new width/height are the minimum for all windows that display
+  // the terminal
+  FOR_ALL_TAB_WINDOWS(tp, wp) {
+    if (wp->w_buffer == term->buf) {
+      width = (uint16_t)MIN(width, (uint16_t)wp->w_width);
+      height = (uint16_t)MIN(height, (uint16_t)wp->w_height);
+    }
+  }
 
   if (curheight == height && curwidth == width) {
     return;
@@ -188,7 +196,7 @@ void terminal_enter(Terminal *term, bool process_deferred)
   // save the focused window while in this mode
   term->curwin = curwin;
   // go to the bottom
-  term->curwin->w_cursor.lnum = term->buf->b_ml.ml_line_count;
+  adjust_topline(term, true);
   flush_updates();
   bool close = false;
   int c;
@@ -426,7 +434,6 @@ static int term_bell(void *data)
 static int term_sb_push(int cols, const VTermScreenCell *cells, void *data)
 {
   Terminal *term = data;
-  term->buf->b_p_ma = true; term->buf->b_p_ro = false;
   // save our buffer
   buf_T *save_curbuf = NULL;
   win_T *save_curwin = NULL;
@@ -441,7 +448,6 @@ static int term_sb_push(int cols, const VTermScreenCell *cells, void *data)
   changed_lines(tgt_linenr, 1, src_linenr, 1);
   // switch back
   restore_win_for_buf(save_curwin, save_curtab, save_curbuf);
-  term->buf->b_p_ma = false; term->buf->b_p_ro = true;
 
   // copy vterm cells into sb_buffer
   size_t c = (size_t)cols;
@@ -483,7 +489,6 @@ static int term_sb_pop(int cols, VTermScreenCell *cells, void *data)
   if (!term->sb_current)
     return 0;
 
-  term->buf->b_p_ma = true; term->buf->b_p_ro = false;
   // restore our buffer
   buf_T *save_curbuf = NULL;
   win_T *save_curwin = NULL;
@@ -496,7 +501,6 @@ static int term_sb_pop(int cols, VTermScreenCell *cells, void *data)
   changed_lines(tgt_linenr, 1, tgt_linenr + 1, 1);
   // switch back
   restore_win_for_buf(save_curwin, save_curtab, save_curbuf);
-  term->buf->b_p_ma = false; term->buf->b_p_ro = true;
 
   // restore vterm state
   size_t c = (size_t)cols;
@@ -545,43 +549,32 @@ static void on_resize(Event event)
     return;
   }
 
+  vterm_set_size(term->vt, term->new_height, term->new_width);
+  vterm_screen_flush_damage(term->vts);
+
   if (term->new_height < height) {
-    term->buf->b_p_ma = true; term->buf->b_p_ro = false;
+    // delete extra lines
     buf_T *save_curbuf = NULL;
     win_T *save_curwin = NULL;
     tabpage_T *save_curtab = NULL;
     switch_to_win_for_buf(term->buf, &save_curwin, &save_curtab,
         &save_curbuf);
-    // delete empty lines at the end of the buffer
     int count = 0;
-    term->buf->b_p_ma = true;
-    while (ml_get(term->buf->b_ml.ml_line_count)[0] == NUL
-        && term->buf->b_ml.ml_line_count > 1) {
+    while (term->buf->b_ml.ml_line_count > term->new_height) {
       ml_delete(term->buf->b_ml.ml_line_count, false);
       count++;
     }
     deleted_lines(term->buf->b_ml.ml_line_count, count);
-    term->buf->b_p_ma = false;
-    // switch back
     restore_win_for_buf(save_curwin, save_curtab, save_curbuf);
-    FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
-      if (wp->w_buffer == term->buf) {
-        wp->w_cursor.lnum = term->buf->b_ml.ml_line_count;
-        redraw_win_later(wp, CLEAR);
-      }
-    }
-    term->buf->b_p_ma = false; term->buf->b_p_ro = true;
+    adjust_topline(term, false);
   }
 
-  vterm_set_size(term->vt, term->new_height, term->new_width);
-  vterm_screen_flush_damage(term->vts);
   term->resize_cb(term->resize_data,
       (uint16_t)term->new_width, (uint16_t)term->new_height);
 }
 
 static void refresh(Terminal *term)
 {
-  term->buf->b_p_ma = true; term->buf->b_p_ro = false;
   buf_T *save_curbuf = NULL;
   win_T *save_curwin = NULL;
   tabpage_T *save_curtab = NULL;
@@ -627,14 +620,11 @@ static void refresh(Terminal *term)
     }
   }
 
-  if (curwin == term->curwin) {
-    term->curwin->w_cursor.lnum = term->buf->b_ml.ml_line_count;
-  }
+  adjust_topline(term, true);
   int line_start = term->invalid_start + (int)term->sb_current + 1;
   int line_end = term->invalid_end + (int)term->sb_current + 1;
   changed_lines(line_start, 0, line_end, added);
   restore_win_for_buf(save_curwin, save_curtab, save_curbuf);
-  term->buf->b_p_ma = false; term->buf->b_p_ro = true;
   term->invalid_start = INT_MAX;
   term->invalid_end = -1;
 }
@@ -733,4 +723,17 @@ static void flush_updates(void)
   ui_cursor_on();
   ui_flush();
   unblock_autocmds();
+}
+
+static void adjust_topline(Terminal *term, bool only_current)
+{
+  int height, width;
+  vterm_get_size(term->vt, &height, &width);
+  FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
+    if (wp->w_buffer == term->buf && (!only_current || wp == curwin)) {
+      wp->w_cursor.lnum = term->buf->b_ml.ml_line_count;
+      set_topline(wp, MAX(term->buf->b_ml.ml_line_count - height + 1, 1));
+      redraw_win_later(wp, CLEAR);
+    }
+  }
 }
