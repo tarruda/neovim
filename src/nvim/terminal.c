@@ -213,7 +213,6 @@ void terminal_enter(Terminal *term, bool process_deferred)
   State = TERM_FOCUS;
   // hide nvim cursor and show terminal's
   ui_cursor_off();
-  changed_lines(term->cursor.row + 1, 1, term->cursor.row + 2, 1);
   ui_lock_cursor_state();
   // disable ctrl+c
   bool save_mapped_ctrl_c = mapped_ctrl_c;
@@ -281,7 +280,6 @@ got_char:
 end:
   term->focused = false;
   State = save_state;
-  changed_lines(term->cursor.row + 1, 1, term->cursor.row + 2, 1);
   ui_unlock_cursor_state();
   ui_cursor_on();
   term->curwin = NULL;
@@ -393,7 +391,7 @@ void terminal_get_line_attributes(Terminal *term, int line, int *term_attrs)
       });
     }
 
-    if (term->focused && term->cursor.visible && term->cursor.row == row
+    if (term->cursor.visible && term->cursor.row == row
         && term->cursor.col == col) {
       attr_id = hl_combine_attr(attr_id, get_attr_entry(&(attrentry_T) {
         .rgb_ae_attr = 0,
@@ -499,7 +497,6 @@ static int term_sb_push(int cols, const VTermScreenCell *cells, void *data)
   CELLS_TO_TEXTBUF(term, cols, cell = cells[i]);
   ml_append(first_hidden_linenr, (uint8_t *)term->textbuf, 0, false);
   ml_delete(first_visible_linenr, false);
-  changed_lines(first_hidden_linenr, 1, first_visible_linenr, 1);
   // switch back
   restore_win_for_buf(save_curwin, save_curtab, save_curbuf);
 
@@ -552,7 +549,6 @@ static int term_sb_pop(int cols, VTermScreenCell *cells, void *data)
   // redrawn by vterm
   linenr_T tgt_linenr = (linenr_T)term->sb_current;
   ml_delete(tgt_linenr, false);
-  changed_lines(tgt_linenr, 1, tgt_linenr + 1, 1);
   // switch back
   restore_win_for_buf(save_curwin, save_curtab, save_curbuf);
 
@@ -664,6 +660,15 @@ static void refresh(Terminal *term)
   adjust_topline(term, true);
   int line_start = term->invalid_start + (int)term->sb_current + 1;
   int line_end = term->invalid_end + (int)term->sb_current + 1;
+
+  // Adjust marks. Invalidate any which lie in the
+  // changed range, and move any in the remainder of the buffer.
+  // Only adjust marks if we managed to switch to a window that holds
+  // the buffer, otherwise line numbers will be invalid.
+  if (save_curbuf == NULL) {
+    mark_adjust(line_start, line_end - 1, MAXLNUM, added);
+  }
+
   changed_lines(line_start, 0, line_end, added);
   restore_win_for_buf(save_curwin, save_curtab, save_curbuf);
   term->invalid_start = INT_MAX;
