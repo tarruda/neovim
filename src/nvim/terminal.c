@@ -182,6 +182,8 @@ void terminal_resize(Terminal *term, uint16_t width, uint16_t height)
 
 void terminal_enter(Terminal *term, bool process_deferred)
 {
+  checkpcmark();
+  setpcmark();
   term->focused = true;
   int save_state = State;
   State = TERM_FOCUS;
@@ -235,9 +237,9 @@ void terminal_enter(Terminal *term, bool process_deferred)
 
   term->focused = false;
   State = save_state;
+  changed_lines(term->cursor.row + 1, 1, term->cursor.row + 2, 1);
   ui_unlock_cursor_state();
   ui_cursor_on();
-  changed_lines(term->cursor.row + 1, 1, term->cursor.row + 2, 1);
   term->curwin = NULL;
   mapped_ctrl_c = save_mapped_ctrl_c;
   if (close) {
