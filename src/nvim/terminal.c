@@ -44,6 +44,27 @@
 
 #define MAX_KEY_LENGTH 256
 
+// Helper macro to convert a row of cells to utf8 in the Terminal instance
+// text buffer
+#define CELLS_TO_TEXTBUF(term, count, fetch_cell_block)          \
+  do {                                                           \
+    char *ptr = term->textbuf;                                   \
+    size_t line_size = 0;                                        \
+    for (int i = 0; i < count; i++) {                            \
+      VTermScreenCell cell;                                      \
+      fetch_cell_block;                                          \
+      size_t size = cell_to_utf8(&cell, ptr);                    \
+      char c = *ptr;                                             \
+      ptr += size;                                               \
+      if (c != ' ') {                                            \
+        /* dont care about trailing whitespace */                \
+        line_size = (size_t)(ptr - term->textbuf);               \
+      }                                                          \
+    }                                                            \
+    /* trim trailing whitespace */                               \
+    term->textbuf[line_size] = 0;                                \
+  } while(0)
+
 typedef struct {
   size_t cols;
   VTermScreenCell cells[];
@@ -473,13 +494,12 @@ static int term_sb_push(int cols, const VTermScreenCell *cells, void *data)
   win_T *save_curwin = NULL;
   tabpage_T *save_curtab = NULL;
   switch_to_win_for_buf(term->buf, &save_curwin, &save_curtab, &save_curbuf);
-  // shift up the first visible line, it will be hidden and vterm will redraw
-  // over it
-  linenr_T src_linenr = (linenr_T)term->sb_current + 1;
-  linenr_T tgt_linenr = (linenr_T)term->sb_current;
-  ml_append(tgt_linenr, ml_get(src_linenr), 0, false);
-  ml_delete(src_linenr, false);
-  changed_lines(tgt_linenr, 1, src_linenr, 1);
+  linenr_T first_visible_linenr = (linenr_T)term->sb_current + 1;
+  linenr_T first_hidden_linenr = (linenr_T)term->sb_current;
+  CELLS_TO_TEXTBUF(term, cols, cell = cells[i]);
+  ml_append(first_hidden_linenr, (uint8_t *)term->textbuf, 0, false);
+  ml_delete(first_visible_linenr, false);
+  changed_lines(first_hidden_linenr, 1, first_visible_linenr, 1);
   // switch back
   restore_win_for_buf(save_curwin, save_curtab, save_curbuf);
 
@@ -620,36 +640,16 @@ static void refresh(Terminal *term)
   win_T *save_curwin = NULL;
   tabpage_T *save_curtab = NULL;
   switch_to_win_for_buf(term->buf, &save_curwin, &save_curtab, &save_curbuf);
-  VTermPos p;
   int added = 0;
   int height, width;
   vterm_get_size(term->vt, &height, &width);
 
-  for (p.row = term->invalid_start; p.row < term->invalid_end; p.row++) {
-    VTermScreenCell cell;
-    char *ptr = term->textbuf;
-    size_t line_size = 0;
-
-    for (p.col = 0; p.col < width; p.col++) {
+  for (int r = term->invalid_start; r < term->invalid_end; r++) {
+    VTermPos p = {.row = r};
+    CELLS_TO_TEXTBUF(term, width, {
+      p.col = i;
       vterm_screen_get_cell(term->vts, p, &cell);
-      if (cell.chars[0] == 0) {
-        *ptr++ = ' ';
-      } else {
-        char buf[64];
-        size_t l = 0, i = 0;
-        do {
-          l += (size_t)utf_char2bytes((int)cell.chars[i], (uint8_t *)buf + l);
-        } while(cell.chars[++i] != 0);
-        memcpy(ptr, buf, l);
-        ptr += l;
-        if (buf[0] != ' ') {
-          // we dont care about trailing whitespace
-          line_size = (size_t)(ptr - term->textbuf);
-        }
-      }
-    }
-    // trim trailing whitespace
-    term->textbuf[line_size] = 0;
+    });
 
     int linenr = p.row + (int)term->sb_current + 1;
 
@@ -859,4 +859,19 @@ static bool send_mouse_event(Terminal *term, int c)
 
   ins_char_typebuf(c);
   return true;
+}
+
+static size_t cell_to_utf8(const VTermScreenCell *cell, char *buf)
+{
+  if (cell->chars[0] != 0) {
+    size_t i = 0, l = 0;
+    do {
+      l += (size_t)utf_char2bytes((int)cell->chars[i], (uint8_t *)buf);
+      buf += l;
+    } while(cell->chars[++i] != 0);
+    return l;
+  }
+
+  *buf = ' ';
+  return 1;
 }
