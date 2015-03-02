@@ -24,6 +24,8 @@
 #include "nvim/syntax.h"
 #include "nvim/screen.h"
 #include "nvim/keymap.h"
+#include "nvim/edit.h"
+#include "nvim/mouse.h"
 #include "nvim/memline.h"
 #include "nvim/mark.h"
 #include "nvim/map.h"
@@ -63,7 +65,7 @@ struct terminal {
   // input focused
   bool focused;
   // some vterm properties
-  bool mouse_enabled, altscreen;
+  bool forward_mouse, altscreen;
   // invalid rows
   int invalid_start, invalid_end;
   uint16_t new_width, new_height;
@@ -71,7 +73,8 @@ struct terminal {
     int row, col;
     bool visible;
   } cursor;
-
+  // which mouse button is pressed
+  int pressed_button;
 };
 
 static VTermScreenCallbacks vterm_screen_callbacks = {
@@ -213,28 +216,48 @@ void terminal_enter(Terminal *term, bool process_deferred)
       event_disable_deferred();
     }
 
-    if (c == K_EVENT) {
-      event_process();
-    } else if (c == Ctrl_G) {
-      c = safe_vgetc();
-      if (c == ESC) {
+got_char:
+    switch (c) {
+      case Ctrl_G:
+        c = safe_vgetc();
+        if (c == ESC) {
+          goto end;
+        }
+        terminal_send_key(term, Ctrl_G);
+        goto got_char;
+
+      case K_LEFTMOUSE:
+      case K_LEFTDRAG:
+      case K_LEFTRELEASE:
+      case K_MIDDLEMOUSE:
+      case K_MIDDLEDRAG:
+      case K_MIDDLERELEASE:
+      case K_RIGHTMOUSE:
+      case K_RIGHTDRAG:
+      case K_RIGHTRELEASE:
+      case K_MOUSEDOWN:
+      case K_MOUSEUP:
+        if (send_mouse_event(term, c)) {
+          goto end;
+        }
         break;
-      } else {
+
+      case K_EVENT:
+        event_process();
+        break;
+
+      default:
+        if (term->exited && c == CAR) {
+          close = true;
+          goto end;
+        }
         terminal_send_key(term, c);
-      }
-    } else if (!term->exited) {
-      terminal_send_key(term, c);
-    } else {
-      if (c == CAR) {
-        do_cmdline_cmd((uint8_t *)"bwipeout!");
-        close = true;
-      }
-      break;
     }
 
     flush_updates();
   }
 
+end:
   term->focused = false;
   State = save_state;
   changed_lines(term->cursor.row + 1, 1, term->cursor.row + 2, 1);
@@ -242,7 +265,9 @@ void terminal_enter(Terminal *term, bool process_deferred)
   ui_cursor_on();
   term->curwin = NULL;
   mapped_ctrl_c = save_mapped_ctrl_c;
+
   if (close) {
+    do_cmdline_cmd((uint8_t *)"bwipeout!");
     for (size_t i = 0 ; i < term->sb_current; i++) {
       free(term->sb_buffer[i]);
     }
@@ -423,7 +448,7 @@ static int term_settermprop(VTermProp prop, VTermValue *val, void *data)
       break;
 
     case VTERM_PROP_MOUSE:
-      term->mouse_enabled = (bool)val->number;
+      term->forward_mouse = (bool)val->number;
       break;
 
     default:
@@ -646,11 +671,16 @@ static void refresh(Terminal *term)
 }
 
 
-static VTermKey convert_key(int key, VTermModifier *statep)
+static void convert_modifiers(VTermModifier *statep)
 {
   if (mod_mask & MOD_MASK_SHIFT) { *statep |= VTERM_MOD_SHIFT; }
   if (mod_mask & MOD_MASK_CTRL)  { *statep |= VTERM_MOD_CTRL; }
   if (mod_mask & MOD_MASK_ALT)   { *statep |= VTERM_MOD_ALT; }
+}
+
+static VTermKey convert_key(int key, VTermModifier *statep)
+{
+  convert_modifiers(statep);
 
   switch(key) {
     case K_BS:        return VTERM_KEY_BACKSPACE;
@@ -756,4 +786,77 @@ static void adjust_topline(Terminal *term, bool only_current)
       set_topline(wp, MAX(term->buf->b_ml.ml_line_count - height + 1, 1));
     }
   }
+}
+
+static void mouse_action(Terminal *term, int button, int row, int col,
+    bool drag, VTermModifier mod)
+{
+  if (term->pressed_button && (term->pressed_button != button || !drag)) {
+    // release the previous button
+    vterm_mouse_button(term->vt, term->pressed_button, 0, mod);
+    term->pressed_button = 0;
+  }
+
+  // move the mouse
+  vterm_mouse_move(term->vt, row, col, mod);
+
+  if (!term->pressed_button) {
+    // press the button if not already pressed
+    vterm_mouse_button(term->vt, button, 1, mod);
+    term->pressed_button = button;
+  }
+}
+
+// process a mouse event while the terminal is focused. return true if the
+// terminal lose focus
+static bool send_mouse_event(Terminal *term, int c)
+{
+  int row = mouse_row, col = mouse_col;
+  win_T *mouse_win = mouse_find_win(&row, &col);
+
+  if (term->forward_mouse && mouse_win == term->curwin) {
+    // event in the terminal window and mouse events was enabled by the
+    // program. translate and forward the event
+    int button;
+    bool drag = false;
+
+    switch (c) {
+      case K_LEFTDRAG: drag = true;
+      case K_LEFTMOUSE: button = 1; break;
+      case K_MIDDLEDRAG: drag = true;
+      case K_MIDDLEMOUSE: button = 2; break;
+      case K_RIGHTDRAG: drag = true;
+      case K_RIGHTMOUSE: button = 3; break;
+      case K_MOUSEDOWN: button = 4; break;
+      case K_MOUSEUP: button = 5; break;
+      default: return false;
+    }
+
+    mouse_action(term, button, row, col, drag, 0);
+    size_t len = vterm_output_read(term->vt, term->textbuf,
+        sizeof(term->textbuf));
+    terminal_send(term, term->textbuf, (size_t)len);
+    return false;
+  }
+
+  if (c == K_MOUSEDOWN || c == K_MOUSEUP) {
+    // switch window/buffer to perform the scroll
+    curwin = mouse_win;
+    curbuf = curwin->w_buffer;
+    int direction = c == K_MOUSEDOWN ? MSCR_DOWN : MSCR_UP;
+    if (mod_mask & (MOD_MASK_SHIFT | MOD_MASK_CTRL)) {
+      scroll_redraw(direction, curwin->w_botline - curwin->w_topline);
+    } else {
+      scroll_redraw(direction, 3L);
+    }
+
+    curwin->w_redr_status = TRUE;
+    curwin = term->curwin;
+    curbuf = curwin->w_buffer;
+    redraw_all_later(NOT_VALID);
+    return false;
+  }
+
+  ins_char_typebuf(c);
+  return true;
 }
