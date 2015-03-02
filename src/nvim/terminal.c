@@ -268,7 +268,7 @@ got_char:
         break;
 
       default:
-        if (term->exited && c == CAR) {
+        if (term->exited) {
           close = true;
           goto end;
         }
@@ -342,7 +342,7 @@ void terminal_receive(Terminal *term, char *data, size_t len)
 
 void terminal_exit(Terminal *term)
 {
-  char *msg = _("\r\n[Process completed, press RETURN to close]");
+  char *msg = _("\r\n[Process completed, press any key to close]");
   terminal_receive(term, msg, strlen(msg));
   term->exited = true;
 }
