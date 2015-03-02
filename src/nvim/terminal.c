@@ -186,6 +186,7 @@ void terminal_enter(Terminal *term, bool process_deferred)
   State = TERM_FOCUS;
   // hide nvim cursor and show terminal's
   ui_cursor_off();
+  changed_lines(term->cursor.row + 1, 1, term->cursor.row + 2, 1);
   ui_lock_cursor_state();
   // disable ctrl+c
   bool save_mapped_ctrl_c = mapped_ctrl_c;
@@ -235,6 +236,7 @@ void terminal_enter(Terminal *term, bool process_deferred)
   State = save_state;
   ui_unlock_cursor_state();
   ui_cursor_on();
+  changed_lines(term->cursor.row + 1, 1, term->cursor.row + 2, 1);
   term->curwin = NULL;
   mapped_ctrl_c = save_mapped_ctrl_c;
   if (close) {
@@ -327,14 +329,14 @@ void terminal_get_line_attributes(Terminal *term, int line, int *term_attrs)
 
     if (hl_attrs || vt_fg != -1 || vt_bg != -1) {
       attr_id = get_attr_entry(&(attrentry_T) {
-        .cterm_ae_attr = (short)hl_attrs,
+        .cterm_ae_attr = (int16_t)hl_attrs,
         .cterm_fg_color = vt_fg != default_vt_fg ?
                           map_get(int, int)(color_indexes, vt_fg) :
                           0,
         .cterm_bg_color = vt_bg != default_vt_bg ?
                           map_get(int, int)(color_indexes, vt_bg) :
                           0,
-        .rgb_ae_attr = (short)hl_attrs,
+        .rgb_ae_attr = (int16_t)hl_attrs,
         // TODO(tarruda): let the user customize the rgb color palette. An
         // option is to read buffer variables with global fallback
         .rgb_fg_color = vt_fg != default_vt_fg ? vt_fg : -1,
@@ -342,7 +344,7 @@ void terminal_get_line_attributes(Terminal *term, int line, int *term_attrs)
       });
     }
 
-    if (term->cursor.visible && term->cursor.row == row
+    if (term->focused && term->cursor.visible && term->cursor.row == row
         && term->cursor.col == col) {
       attr_id = hl_combine_attr(attr_id, get_attr_entry(&(attrentry_T) {
         .rgb_ae_attr = 0,
@@ -352,7 +354,7 @@ void terminal_get_line_attributes(Terminal *term, int line, int *term_attrs)
         .cterm_fg_color = 0,
         .cterm_bg_color = 11,
       }));
-    } 
+    }
 
     term_attrs[col] = attr_id;
   }
