@@ -96,7 +96,8 @@ void terminal_init(void)
 
 Terminal *terminal_open(TerminalOptions opts)
 {
-  if (do_ecmd(0, NULL, NULL, NULL, ECMD_ONE, 0, NULL) == FAIL) {
+  int flags = opts.force ? ECMD_FORCEIT : 0;
+  if (do_ecmd(0, NULL, NULL, NULL, ECMD_ONE, flags, NULL) == FAIL) {
     return NULL;
   }
   set_option_value((uint8_t *)"buftype", 0, (uint8_t *)"nofile", OPT_LOCAL);

@@ -8881,6 +8881,7 @@ static void ex_folddo(exarg_T *eap)
 static void ex_terminal(exarg_T *eap)
 {
   TerminalOptions topts = TERMINAL_OPTIONS_INIT;
+  topts.force = eap->forceit;
   topts.width = curwin->w_width;
   topts.height = curwin->w_height;
   topts.write_cb = term_write;
