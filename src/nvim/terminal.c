@@ -733,6 +733,11 @@ static void flush_updates(void)
     maketitle();
   }
   showruler(false);
+  Terminal *term = curbuf->terminal;
+  if (term && term->focused && term->cursor.visible) {
+    curwin->w_wrow = term->cursor.row;
+    curwin->w_wcol = term->cursor.col;
+  }
   setcursor();
   ui_cursor_on();
   ui_flush();
