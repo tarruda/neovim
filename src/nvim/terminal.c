@@ -71,6 +71,7 @@ struct terminal {
     int row, col;
     bool visible;
   } cursor;
+
 };
 
 static VTermScreenCallbacks vterm_screen_callbacks = {
@@ -312,9 +313,9 @@ void terminal_get_line_attributes(Terminal *term, int line, int *term_attrs)
       cell = sbline->cells[col];
     }
 
-    int vt_fg = cell.fg.red << 16 | cell.fg.green << 8 | cell.fg.blue;
+    int vt_fg = RGB(cell.fg.red, cell.fg.green, cell.fg.blue);
     vt_fg = vt_fg != default_vt_fg ? vt_fg : - 1;
-    int vt_bg = cell.bg.red << 16 | cell.bg.green << 8 | cell.bg.blue;
+    int vt_bg = RGB(cell.bg.red, cell.bg.green, cell.bg.blue);
     vt_bg = vt_bg != default_vt_bg ? vt_bg : - 1;
 
     int hl_attrs = (cell.attrs.bold ? HL_BOLD : 0)
@@ -344,8 +345,12 @@ void terminal_get_line_attributes(Terminal *term, int line, int *term_attrs)
     if (term->cursor.visible && term->cursor.row == row
         && term->cursor.col == col) {
       attr_id = hl_combine_attr(attr_id, get_attr_entry(&(attrentry_T) {
-        .rgb_ae_attr = 0, .rgb_fg_color = -1, .rgb_bg_color = -1,
-        .cterm_ae_attr = 0, .cterm_fg_color = 0, .cterm_bg_color = 11,
+        .rgb_ae_attr = 0,
+        .rgb_fg_color = -1,
+        .rgb_bg_color = RGB(0x8a, 0xe2, 0x34),
+        .cterm_ae_attr = 0,
+        .cterm_fg_color = 0,
+        .cterm_bg_color = 11,
       }));
     } 
 
@@ -697,13 +702,13 @@ static void initialize_color_indexes(void)
     VTermColor color;
     vterm_state_get_palette_color(state, color_index, &color);
     map_put(int, int)(color_indexes,
-        (color.red << 16 | color.green << 8 | color.blue), color_index + 1);
+        RGB(color.red, color.green, color.blue), color_index + 1);
   }
 
   VTermColor fg, bg;
   vterm_state_get_default_colors(state, &fg, &bg);
-  default_vt_fg = fg.red << 16 | fg.green << 8 | fg.blue;
-  default_vt_bg = bg.red << 16 | bg.green << 8 | bg.blue;
+  default_vt_fg = RGB(fg.red, fg.green, fg.blue);
+  default_vt_bg = RGB(bg.red, bg.green, bg.blue);
   vterm_free(vt);
 }
 
@@ -739,7 +744,6 @@ static void adjust_topline(Terminal *term, bool only_current)
     if (wp->w_buffer == term->buf && (!only_current || wp == curwin)) {
       wp->w_cursor.lnum = term->buf->b_ml.ml_line_count;
       set_topline(wp, MAX(term->buf->b_ml.ml_line_count - height + 1, 1));
-      redraw_win_later(wp, CLEAR);
     }
   }
 }

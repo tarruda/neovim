@@ -40,6 +40,7 @@
 #include "nvim/option.h"
 #include "nvim/os_unix.h"
 #include "nvim/path.h"
+#include "nvim/macros.h"
 #include "nvim/regexp.h"
 #include "nvim/screen.h"
 #include "nvim/strings.h"
@@ -7425,7 +7426,6 @@ char_u *get_highlight_name(expand_T *xp, int idx)
   return HL_TABLE()[idx].sg_name;
 }
 
-#define RGB(r, g, b) ((r << 16) | (g << 8) | b)
 color_name_table_T color_name_table[] = {
   // Color names taken from
   // http://www.rapidtables.com/web/color/RGB_Color.htm
