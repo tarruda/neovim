@@ -208,12 +208,12 @@ void terminal_enter(Terminal *term, bool process_deferred)
 
 got_char:
     switch (c) {
-      case Ctrl_G:
+      case Ctrl_BSL:
         c = safe_vgetc();
-        if (c == ESC) {
+        if (c == Ctrl_N) {
           goto end;
         }
-        terminal_send_key(term, Ctrl_G);
+        terminal_send_key(term, Ctrl_BSL);
         goto got_char;
 
       case K_LEFTMOUSE:

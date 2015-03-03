@@ -546,11 +546,8 @@ main_loop (
       skip_redraw = FALSE;
     else if (do_redraw || stuff_empty()) {
       /* Trigger CursorMoved if the cursor moved. */
-      if (!finish_op && (
-            has_cursormoved()
-            ||
-            curwin->w_p_cole > 0
-            )
+      if (!finish_op && (has_cursormoved() || curwin->w_p_cole > 0)
+          && !curbuf->terminal
           && !equalpos(last_cursormoved, curwin->w_cursor)) {
         if (has_cursormoved())
           apply_autocmds(EVENT_CURSORMOVED, NULL, NULL,
