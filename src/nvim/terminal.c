@@ -488,13 +488,17 @@ static int term_sb_push(int cols, const VTermScreenCell *cells, void *data)
   Terminal *term = data;
 
   WITH_BUFFER(term->buf, {
-    int first_visible_linenr = (int)term->sb_current + 1;
-    int first_hidden_linenr = (int)term->sb_current;
+    if (term->sb_current == term->sb_size) {
+      // scrollback full, delete a line at the top
+      ml_delete(1, false);
+      deleted_lines(1, 1);
+    }
+    // int first_visible_linenr = (int)term->sb_current + 1;
+    // int first_hidden_linenr = (int)term->sb_current;
+    int hidden_count = (int)term->sb_current;
     CELLS_TO_TEXTBUF(term, cols, cell = cells[i]);
-    ml_append(first_hidden_linenr, (uint8_t *)term->textbuf, 0, false);
-    ml_delete(first_visible_linenr, false);
-    mod_start = first_hidden_linenr;
-    mod_end = first_visible_linenr;
+    ml_append(hidden_count, (uint8_t *)term->textbuf, 0, false);
+    appended_lines(hidden_count, 1);
   });
 
   // copy vterm cells into sb_buffer
@@ -542,9 +546,7 @@ static int term_sb_pop(int cols, VTermScreenCell *cells, void *data)
     // redrawn by vterm
     int linenr = (int)term->sb_current;
     ml_delete(linenr, false);
-    mod_start = linenr;
-    mod_end = linenr + 1;
-    added = -1;
+    deleted_lines(linenr, 1);
   });
 
   // restore vterm state
@@ -601,21 +603,6 @@ static void on_resize(Event event)
   vterm_set_size(term->vt, term->new_height, term->new_width);
   vterm_screen_flush_damage(term->vts);
 
-  if (term->new_height < height) {
-    // delete extra lines
-    WITH_BUFFER(term->buf, {
-      int count = 0;
-      while (term->buf->b_ml.ml_line_count > term->new_height) {
-        ml_delete(term->buf->b_ml.ml_line_count, false);
-        count++;
-      }
-      mod_start = (int)term->buf->b_ml.ml_line_count;
-      mod_end = mod_start + count;
-      added = -count;
-    });
-    adjust_topline(term, false);
-  }
-
   term->opts.resize_cb((uint16_t)term->new_width,
       (uint16_t)term->new_height, term->data);
 }
@@ -629,6 +616,8 @@ static void refresh(Terminal *term)
   WITH_BUFFER(term->buf, {
     int height;
     int width;
+    int changed = 0;
+    int added = 0;
     vterm_get_size(term->vt, &height, &width);
 
     for (int r = term->invalid_start; r < term->invalid_end; r++) {
@@ -642,15 +631,25 @@ static void refresh(Terminal *term)
 
       if (linenr <= term->buf->b_ml.ml_line_count) {
         ml_replace(linenr, (uint8_t *)term->textbuf, true);
+        changed++;
       } else {
         ml_append(linenr - 1, (uint8_t *)term->textbuf, 0, false);
         added++;
       }
     }
 
+    // After refresh, there may be extra lines due to resize of scrollback
+    // pushs, delete it now.
+    int max_line_count = (int)term->sb_current + height;
+    while (max_line_count < term->buf->b_ml.ml_line_count) {
+      ml_delete(max_line_count, false);
+      added--;
+    }
+
+    int change_start = term->invalid_start + (int)term->sb_current + 1;
+    int change_end = change_start + changed;
+    changed_lines(change_start, 0, change_end, added);
     adjust_topline(term, true);
-    mod_start = term->invalid_start + (int)term->sb_current + 1;
-    mod_end = term->invalid_end + (int)term->sb_current + 1;
   });
 
   term->invalid_start = INT_MAX;
@@ -763,18 +762,6 @@ static void flush_updates(void)
   unblock_autocmds();
 }
 
-static void adjust_topline(Terminal *term, bool only_current)
-{
-  int height, width;
-  vterm_get_size(term->vt, &height, &width);
-  FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
-    if (wp->w_buffer == term->buf && (!only_current || wp == curwin)) {
-      wp->w_cursor.lnum = term->buf->b_ml.ml_line_count;
-      set_topline(wp, MAX(term->buf->b_ml.ml_line_count - height + 1, 1));
-    }
-  }
-}
-
 static void mouse_action(Terminal *term, int button, int row, int col,
     bool drag, VTermModifier mod)
 {
@@ -861,4 +848,14 @@ static size_t cell_to_utf8(const VTermScreenCell *cell, char *buf)
 
   *buf = ' ';
   return 1;
+}
+
+static void adjust_topline(Terminal *term, bool only_current)
+{
+  FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
+    if (wp->w_buffer == term->buf && (!only_current || wp == curwin)) {
+      wp->w_cursor.lnum = term->buf->b_ml.ml_line_count;
+      set_topline(wp, MAX((int)term->sb_current + 1, 1));
+    }
+  }
 }
