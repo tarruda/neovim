@@ -321,6 +321,14 @@ close_buffer (
   } else if (buf->b_p_bh[0] == 'u')     /* 'bufhidden' == "unload" */
     unload_buf = true;
 
+  if (buf->terminal && (unload_buf || del_buf || wipe_buf)) {
+    // terminal buffers can only be wiped
+    terminal_close(buf->terminal);
+    unload_buf = true;
+    del_buf = true;
+    wipe_buf = true;
+  } 
+
   if (win_valid(win)) {
     /* Set b_last_cursor when closing the last window for the buffer.
      * Remember the last cursor position and window options of the buffer.
@@ -924,8 +932,8 @@ do_buffer (
     if (action != DOBUF_WIPE && buf->b_ml.ml_mfp == NULL && !buf->b_p_bl)
       return FAIL;
 
-    if (!forceit && bufIsChanged(buf)) {
-      if ((p_confirm || cmdmod.confirm) && p_write) {
+    if (!forceit && (buf->terminal || bufIsChanged(buf))) {
+      if ((p_confirm || cmdmod.confirm) && p_write && !buf->terminal) {
         dialog_changed(buf, FALSE);
         if (!buf_valid(buf))
           /* Autocommand deleted buffer, oops!  It's not changed
@@ -936,9 +944,13 @@ do_buffer (
         if (bufIsChanged(buf))
           return FAIL;
       } else {
-        EMSGN(_("E89: No write since last change for buffer %" PRId64
-                " (add ! to override)"),
-              buf->b_fnum);
+        if (buf->terminal) {
+          EMSGN(_("E89: %s will be killed(add ! to override)"), buf->b_fname);
+        } else {
+          EMSGN(_("E89: No write since last change for buffer %" PRId64
+                  " (add ! to override)"),
+                buf->b_fnum);
+        }
         return FAIL;
       }
     }
