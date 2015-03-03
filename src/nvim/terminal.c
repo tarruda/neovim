@@ -35,7 +35,6 @@
 #include "nvim/ex_cmds.h"
 #include "nvim/window.h"
 #include "nvim/os/event.h"
-#include "nvim/api/private/helpers.h"
 #include "nvim/fileio.h"
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
@@ -487,18 +486,16 @@ static int term_bell(void *data)
 static int term_sb_push(int cols, const VTermScreenCell *cells, void *data)
 {
   Terminal *term = data;
-  // save our buffer
-  buf_T *save_curbuf = NULL;
-  win_T *save_curwin = NULL;
-  tabpage_T *save_curtab = NULL;
-  switch_to_win_for_buf(term->buf, &save_curwin, &save_curtab, &save_curbuf);
-  linenr_T first_visible_linenr = (linenr_T)term->sb_current + 1;
-  linenr_T first_hidden_linenr = (linenr_T)term->sb_current;
-  CELLS_TO_TEXTBUF(term, cols, cell = cells[i]);
-  ml_append(first_hidden_linenr, (uint8_t *)term->textbuf, 0, false);
-  ml_delete(first_visible_linenr, false);
-  // switch back
-  restore_win_for_buf(save_curwin, save_curtab, save_curbuf);
+
+  WITH_BUFFER(term->buf, {
+    int first_visible_linenr = (int)term->sb_current + 1;
+    int first_hidden_linenr = (int)term->sb_current;
+    CELLS_TO_TEXTBUF(term, cols, cell = cells[i]);
+    ml_append(first_hidden_linenr, (uint8_t *)term->textbuf, 0, false);
+    ml_delete(first_visible_linenr, false);
+    mod_start = first_hidden_linenr;
+    mod_end = first_visible_linenr;
+  });
 
   // copy vterm cells into sb_buffer
   size_t c = (size_t)cols;
@@ -540,17 +537,15 @@ static int term_sb_pop(int cols, VTermScreenCell *cells, void *data)
   if (!term->sb_current)
     return 0;
 
-  // restore our buffer
-  buf_T *save_curbuf = NULL;
-  win_T *save_curwin = NULL;
-  tabpage_T *save_curtab = NULL;
-  switch_to_win_for_buf(term->buf, &save_curwin, &save_curtab, &save_curbuf);
-  // delete the first line that is not visible above the screen, it will be
-  // redrawn by vterm
-  linenr_T tgt_linenr = (linenr_T)term->sb_current;
-  ml_delete(tgt_linenr, false);
-  // switch back
-  restore_win_for_buf(save_curwin, save_curtab, save_curbuf);
+  WITH_BUFFER(term->buf, {
+    // delete the first line that is not visible above the screen, it will be
+    // redrawn by vterm
+    int linenr = (int)term->sb_current;
+    ml_delete(linenr, false);
+    mod_start = linenr;
+    mod_end = linenr + 1;
+    added = -1;
+  });
 
   // restore vterm state
   size_t c = (size_t)cols;
@@ -608,18 +603,16 @@ static void on_resize(Event event)
 
   if (term->new_height < height) {
     // delete extra lines
-    buf_T *save_curbuf = NULL;
-    win_T *save_curwin = NULL;
-    tabpage_T *save_curtab = NULL;
-    switch_to_win_for_buf(term->buf, &save_curwin, &save_curtab,
-        &save_curbuf);
-    int count = 0;
-    while (term->buf->b_ml.ml_line_count > term->new_height) {
-      ml_delete(term->buf->b_ml.ml_line_count, false);
-      count++;
-    }
-    deleted_lines(term->buf->b_ml.ml_line_count, count);
-    restore_win_for_buf(save_curwin, save_curtab, save_curbuf);
+    WITH_BUFFER(term->buf, {
+      int count = 0;
+      while (term->buf->b_ml.ml_line_count > term->new_height) {
+        ml_delete(term->buf->b_ml.ml_line_count, false);
+        count++;
+      }
+      mod_start = (int)term->buf->b_ml.ml_line_count;
+      mod_end = mod_start + count;
+      added = -count;
+    });
     adjust_topline(term, false);
   }
 
@@ -632,45 +625,34 @@ static void refresh(Terminal *term)
   if (!term->buf || exiting) {
     return;
   }
-  buf_T *save_curbuf = NULL;
-  win_T *save_curwin = NULL;
-  tabpage_T *save_curtab = NULL;
-  switch_to_win_for_buf(term->buf, &save_curwin, &save_curtab, &save_curbuf);
-  int added = 0;
-  int height, width;
-  vterm_get_size(term->vt, &height, &width);
 
-  for (int r = term->invalid_start; r < term->invalid_end; r++) {
-    VTermPos p = {.row = r};
-    CELLS_TO_TEXTBUF(term, width, {
-      p.col = i;
-      vterm_screen_get_cell(term->vts, p, &cell);
-    });
+  WITH_BUFFER(term->buf, {
+    int height;
+    int width;
+    vterm_get_size(term->vt, &height, &width);
 
-    int linenr = p.row + (int)term->sb_current + 1;
+    for (int r = term->invalid_start; r < term->invalid_end; r++) {
+      VTermPos p = {.row = r};
+      CELLS_TO_TEXTBUF(term, width, {
+        p.col = i;
+        vterm_screen_get_cell(term->vts, p, &cell);
+      });
 
-    if (linenr <= term->buf->b_ml.ml_line_count) {
-      ml_replace(linenr, (uint8_t *)term->textbuf, true);
-    } else {
-      ml_append(linenr - 1, (uint8_t *)term->textbuf, 0, false);
-      added++;
+      int linenr = p.row + (int)term->sb_current + 1;
+
+      if (linenr <= term->buf->b_ml.ml_line_count) {
+        ml_replace(linenr, (uint8_t *)term->textbuf, true);
+      } else {
+        ml_append(linenr - 1, (uint8_t *)term->textbuf, 0, false);
+        added++;
+      }
     }
-  }
 
-  adjust_topline(term, true);
-  int line_start = term->invalid_start + (int)term->sb_current + 1;
-  int line_end = term->invalid_end + (int)term->sb_current + 1;
+    adjust_topline(term, true);
+    mod_start = term->invalid_start + (int)term->sb_current + 1;
+    mod_end = term->invalid_end + (int)term->sb_current + 1;
+  });
 
-  // Adjust marks. Invalidate any which lie in the
-  // changed range, and move any in the remainder of the buffer.
-  // Only adjust marks if we managed to switch to a window that holds
-  // the buffer, otherwise line numbers will be invalid.
-  if (save_curbuf == NULL) {
-    mark_adjust(line_start, line_end - 1, MAXLNUM, added);
-  }
-
-  changed_lines(line_start, 0, line_end, added);
-  restore_win_for_buf(save_curwin, save_curtab, save_curbuf);
   term->invalid_start = INT_MAX;
   term->invalid_end = -1;
 }
