@@ -77,20 +77,11 @@ static inline void restore_win_for_buf(win_T *save_curwin,
 
 #define WITH_BUFFER(b, code)                                              \
   do {                                                                    \
-    int mod_start = 0, mod_end = 0, added = 0;                            \
     buf_T *save_curbuf = NULL;                                            \
     win_T *save_curwin = NULL;                                            \
     tabpage_T *save_curtab = NULL;                                        \
     switch_to_win_for_buf(b, &save_curwin, &save_curtab, &save_curbuf);   \
     code;                                                                 \
-    /* Adjust marks. Invalidate any which lie in the */                   \
-    /* changed range, and move any in the remainder of the buffer */      \
-    /* Only adjust marks if we managed to switch to a window that */      \
-    /* holds the buffer, otherwise line numbers will be invalid. */       \
-    if (save_curbuf == NULL) {                                            \
-      mark_adjust(mod_start, mod_end - 1, MAXLNUM, added);                \
-    }                                                                     \
-    changed_lines(mod_start, 0, mod_end, added);                          \
     restore_win_for_buf(save_curwin, save_curtab, save_curbuf);           \
   } while (0)
 
