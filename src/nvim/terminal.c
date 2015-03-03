@@ -74,6 +74,9 @@ struct terminal {
   // TODO(tarruda): a circular buffer would be more efficient for this
   ScrollbackLine **sb_buffer;
   size_t sb_current, sb_size;
+  // number of lines that have been added to sb_buffer but not to the buf_T
+  // associated with the terminal
+  int pending_sb_pushs, pending_sb_pops;
   buf_T *buf;
   win_T *curwin;
   VTerm *vt;
@@ -86,6 +89,8 @@ struct terminal {
   bool focused;
   // some vterm properties
   bool forward_mouse, altscreen;
+  // terminal title
+  char *title;
   // invalid rows
   int invalid_start, invalid_end;
   uint16_t new_width, new_height;
@@ -119,10 +124,13 @@ void terminal_init(void)
 
 Terminal *terminal_open(TerminalOptions opts)
 {
+  Terminal *rv = NULL;
+  block_autocmds();
   int flags = opts.force ? ECMD_FORCEIT : 0;
   if (do_ecmd(0, NULL, NULL, NULL, ECMD_ONE, flags, NULL) == FAIL) {
-    return NULL;
+    goto end;
   }
+
   set_option_value((uint8_t *)"buftype", 0, (uint8_t *)"nofile", OPT_LOCAL);
   set_option_value((uint8_t *)"swapfile", false, NULL, OPT_LOCAL);
   set_option_value((uint8_t *)"bufhidden", 0, (uint8_t *)"hide", OPT_LOCAL);
@@ -136,7 +144,7 @@ Terminal *terminal_open(TerminalOptions opts)
   invalidate_botline();
   redraw_later(NOT_VALID);
   // Create a new terminal instance and configure it
-  Terminal *rv = xcalloc(1, sizeof(Terminal));
+  rv = xcalloc(1, sizeof(Terminal));
   rv->opts = opts;
   rv->sb_size = 1000;
   rv->sb_current = 0;
@@ -160,47 +168,10 @@ Terminal *terminal_open(TerminalOptions opts)
   vterm_screen_set_callbacks(rv->vts, &vterm_screen_callbacks, rv);
   vterm_screen_set_damage_merge(rv->vts, VTERM_DAMAGE_SCROLL);
   vterm_screen_reset(rv->vts, 1);
+
+end:
+  unblock_autocmds();
   return rv;
-}
-
-void terminal_set_title(Terminal *term, char *title)
-{
-  (void)setfname(term->buf, (char_u *)title, NULL, true);
-}
-
-void terminal_resize(Terminal *term, uint16_t width, uint16_t height)
-{
-  if (term->exited) {
-    return;
-  }
-
-  int curwidth, curheight;
-  vterm_get_size(term->vt, &curheight, &curwidth);
-
-  if (!width) {
-    width = (uint16_t)curwidth;
-  }
-
-  if (!height) {
-    height = (uint16_t)curheight;
-  }
-  
-  // the actual new width/height are the minimum for all windows that display
-  // the terminal
-  FOR_ALL_TAB_WINDOWS(tp, wp) {
-    if (wp->w_buffer == term->buf) {
-      width = (uint16_t)MIN(width, (uint16_t)wp->w_width);
-      height = (uint16_t)MIN(height, (uint16_t)wp->w_height);
-    }
-  }
-
-  if (curheight == height && curwidth == width) {
-    return;
-  }
-
-  term->new_width = (uint16_t)width;
-  term->new_height = (uint16_t)height;
-  event_push((Event) { .data = term, .handler = on_resize }, false);
 }
 
 void terminal_enter(Terminal *term, bool process_deferred)
@@ -293,6 +264,48 @@ end:
     vterm_free(term->vt);
     free(term);
   }
+}
+
+
+void terminal_set_title(Terminal *term, char *title)
+{
+  term->title = title;
+  event_push((Event) { .data = term, .handler = on_set_title }, false);
+}
+
+void terminal_resize(Terminal *term, uint16_t width, uint16_t height)
+{
+  if (term->exited) {
+    return;
+  }
+
+  int curwidth, curheight;
+  vterm_get_size(term->vt, &curheight, &curwidth);
+
+  if (!width) {
+    width = (uint16_t)curwidth;
+  }
+
+  if (!height) {
+    height = (uint16_t)curheight;
+  }
+  
+  // the actual new width/height are the minimum for all windows that display
+  // the terminal
+  FOR_ALL_TAB_WINDOWS(tp, wp) {
+    if (wp->w_buffer == term->buf) {
+      width = (uint16_t)MIN(width, (uint16_t)wp->w_width);
+      height = (uint16_t)MIN(height, (uint16_t)wp->w_height);
+    }
+  }
+
+  if (curheight == height && curwidth == width) {
+    return;
+  }
+
+  term->new_width = (uint16_t)width;
+  term->new_height = (uint16_t)height;
+  event_push((Event) { .data = term, .handler = on_resize }, false);
 }
 
 void terminal_set_data(Terminal *term, void *data)
@@ -462,7 +475,6 @@ static int term_settermprop(VTermProp prop, VTermValue *val, void *data)
 
     case VTERM_PROP_TITLE:
       terminal_set_title(term, val->string);
-      redraw_buf_later(term->buf, CLEAR);
       break;
 
     case VTERM_PROP_MOUSE:
@@ -486,20 +498,8 @@ static int term_bell(void *data)
 static int term_sb_push(int cols, const VTermScreenCell *cells, void *data)
 {
   Terminal *term = data;
-
-  WITH_BUFFER(term->buf, {
-    if (term->sb_current == term->sb_size) {
-      // scrollback full, delete a line at the top
-      ml_delete(1, false);
-      deleted_lines(1, 1);
-    }
-    // int first_visible_linenr = (int)term->sb_current + 1;
-    // int first_hidden_linenr = (int)term->sb_current;
-    int hidden_count = (int)term->sb_current;
-    CELLS_TO_TEXTBUF(term, cols, cell = cells[i]);
-    ml_append(hidden_count, (uint8_t *)term->textbuf, 0, false);
-    appended_lines(hidden_count, 1);
-  });
+  term->pending_sb_pushs++;
+  event_push((Event) { .data = term, .handler = on_sb_push }, false);
 
   // copy vterm cells into sb_buffer
   size_t c = (size_t)cols;
@@ -541,14 +541,8 @@ static int term_sb_pop(int cols, VTermScreenCell *cells, void *data)
   if (!term->sb_current)
     return 0;
 
-  WITH_BUFFER(term->buf, {
-    // delete the first line that is not visible above the screen, it will be
-    // redrawn by vterm
-    int linenr = (int)term->sb_current;
-    ml_delete(linenr, false);
-    deleted_lines(linenr, 1);
-  });
-
+  term->pending_sb_pops++;
+  event_push((Event) { .data = term, .handler = on_sb_pop }, false);
   // restore vterm state
   size_t c = (size_t)cols;
   ScrollbackLine *lbuf = term->sb_buffer[0];
@@ -607,6 +601,51 @@ static void on_resize(Event event)
       (uint16_t)term->new_height, term->data);
 }
 
+static void on_set_title(Event event)
+{
+  Terminal *term = event.data;
+  (void)setfname(term->buf, (uint8_t *)term->title, NULL, true);
+  redraw_buf_later(term->buf, CLEAR);
+}
+
+static void on_sb_push(Event event)
+{
+  Terminal *term = event.data;
+  // get the ScrollbackLine instance that correspond to this event
+  ScrollbackLine *line = term->sb_buffer[term->pending_sb_pushs - 1];
+  int buf_index = (int)term->sb_current - term->pending_sb_pushs;
+  block_autocmds();
+  WITH_BUFFER(term->buf, {
+    if (term->buf->b_ml.ml_line_count == (int)term->sb_size) {
+      // buffer scrollback full, delete a line at the top
+      ml_delete(1, false);
+      deleted_lines(1, 1);
+    }
+    CELLS_TO_TEXTBUF(term, (int)line->cols, cell = line->cells[i]);
+    ml_append(buf_index, (uint8_t *)term->textbuf, 0, false);
+    appended_lines(buf_index, 1);
+  });
+  unblock_autocmds();
+  term->pending_sb_pushs--;
+  assert(term->pending_sb_pushs >= 0);
+}
+
+static void on_sb_pop(Event event)
+{
+  Terminal *term = event.data;
+  int buf_index = (int)term->sb_current - term->pending_sb_pops;
+  block_autocmds();
+  WITH_BUFFER(term->buf, {
+    // delete the first line that is not visible above the screen, it will be
+    // redrawn by vterm
+    ml_delete(buf_index, false);
+    deleted_lines(buf_index, 1);
+  });
+  unblock_autocmds();
+  term->pending_sb_pushs--;
+  assert(term->pending_sb_pops >= 0);
+}
+
 static void refresh(Terminal *term)
 {
   if (!term->buf || exiting) {
@@ -655,7 +694,6 @@ static void refresh(Terminal *term)
   term->invalid_start = INT_MAX;
   term->invalid_end = -1;
 }
-
 
 static void convert_modifiers(VTermModifier *statep)
 {

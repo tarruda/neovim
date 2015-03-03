@@ -6442,6 +6442,9 @@ apply_autocmds_group (
     exarg_T *eap           /* command arguments */
 )
 {
+  if (buf && buf->terminal) {
+    return true;
+  }
   char_u      *sfname = NULL;   /* short file name */
   char_u      *tail;
   bool save_changed;
