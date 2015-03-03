@@ -1516,7 +1516,7 @@ static char_u * do_one_cmd(char_u **cmdlinep,
       goto doend;
     }
 #endif
-    if (!curbuf->b_p_ma && (ea.argt & MODIFY)) {
+    if (!can_modify(curbuf) && (ea.argt & MODIFY)) {
       /* Command not allowed in non-'modifiable' buffer */
       errormsg = (char_u *)_(e_modifiable);
       goto doend;
