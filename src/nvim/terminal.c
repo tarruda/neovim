@@ -44,6 +44,7 @@
 #endif
 
 typedef struct {
+  bool free, eof;
   char data[0xfff];
   size_t len;
   Terminal *term;
@@ -93,7 +94,7 @@ struct terminal {
   TerminalOptions opts;
   void *data;
   // program exited
-  bool exited;
+  bool closed;
   // input focused
   bool focused;
   // some vterm properties
@@ -171,6 +172,24 @@ Terminal *terminal_open(TerminalOptions opts)
   return rv;
 }
 
+void terminal_close(Terminal *term, char *msg)
+{
+  if (msg) {
+    terminal_receive(term, msg, strlen(msg));
+  }
+
+  TerminalData *td = kmp_alloc(TerminalDataPool, terminal_data_pool);
+  td->term = term;
+  td->eof = true;
+  //  If no msg was given, this was called by close_buffer(buffer.c) so we
+  //  should not wait for the user to press a key
+  td->free = !msg;
+  td->term->buf->terminal = NULL;
+  // treat the terminal close any data event to ensure it only closes after all
+  // pending redraws.
+  event_push((Event) {.data = td, .handler = on_receive}, false);
+}
+
 void terminal_set_title(Terminal *term, char *title)
 {
   (void)setfname(term->buf, (char_u *)title, NULL, true);
@@ -178,10 +197,6 @@ void terminal_set_title(Terminal *term, char *title)
 
 void terminal_resize(Terminal *term, uint16_t width, uint16_t height)
 {
-  if (term->exited) {
-    return;
-  }
-
   int curwidth, curheight;
   vterm_get_size(term->vt, &curheight, &curwidth);
 
@@ -233,7 +248,6 @@ void terminal_enter(Terminal *term, bool process_deferred)
   adjust_topline(term);
   changed_lines(cursor_line(term), 0, cursor_line(term) + 1, 0);
   flush_updates();
-  bool close = false;
   int c;
 
   for (;;) {
@@ -245,6 +259,10 @@ void terminal_enter(Terminal *term, bool process_deferred)
 
     if (process_deferred) {
       event_disable_deferred();
+    }
+
+    if (term->closed) {
+      goto end;
     }
 
     switch (c) {
@@ -277,10 +295,6 @@ void terminal_enter(Terminal *term, bool process_deferred)
         break;
 
       default:
-        if (term->exited) {
-          close = true;
-          goto end;
-        }
         terminal_send_key(term, c);
     }
 
@@ -295,31 +309,26 @@ end:
   ui_cursor_on();
   term->curwin = NULL;
   mapped_ctrl_c = save_mapped_ctrl_c;
-
-  if (close) {
-    do_cmdline_cmd((uint8_t *)"bwipeout!");
-    for (size_t i = 0 ; i < term->sb_current; i++) {
-      free(term->sb_buffer[i]);
-    }
-    free(term->sb_buffer);
-    vterm_free(term->vt);
-    free(term);
+  if (term->closed) {
+    term->buf = NULL;
+    term->opts.close_cb(term->data);
   }
+}
+
+void terminal_destroy(Terminal *term)
+{
+  do_cmdline_cmd((uint8_t *)"bwipeout!");
+  for (size_t i = 0 ; i < term->sb_current; i++) {
+    free(term->sb_buffer[i]);
+  }
+  free(term->sb_buffer);
+  vterm_free(term->vt);
+  free(term);
 }
 
 void terminal_set_data(Terminal *term, void *data)
 {
   term->data = data;
-}
-
-void terminal_close(Terminal *term)
-{
-  term->buf = NULL;
-  if (!term->exited) {
-    // terminal_exited was called by the user of this instance, no need to call
-    // close_cb
-    term->opts.close_cb(term->data);
-  }
 }
 
 void terminal_send(Terminal *term, char *data, size_t size)
@@ -352,15 +361,10 @@ void terminal_receive(Terminal *term, char *data, size_t len)
     len -= copy;
     td->term = term;
     td->len = copy;
+    td->eof = false;
+    td->free = false;
     event_push((Event) {.data = td, .handler = on_receive}, false);
   }
-}
-
-void terminal_exit(Terminal *term)
-{
-  char *msg = _("\r\n[Process completed, press any key to close]");
-  terminal_receive(term, msg, strlen(msg));
-  term->exited = true;
 }
 
 void terminal_get_line_attributes(Terminal *term, int line, int *term_attrs)
@@ -429,7 +433,7 @@ static int term_damage(VTermRect rect, void *data)
 {
   bool is_empty = true;
   void *stub; (void)(stub);
-  map_foreach_value(damaged_terminals, stub, { is_empty = false; });
+  map_foreach_value(damaged_terminals, stub, { is_empty = false; break; });
 
   Terminal *term = data;
   term->invalid_start = MIN(term->invalid_start, rect.start_row);
@@ -852,8 +856,20 @@ static void adjust_topline(Terminal *term)
 static void on_receive(Event event)
 {
   TerminalData *td = event.data;
+
+  assert(!td->term->closed);
+
+  if (td->eof) {
+    td->term->closed = true;
+    if (td->free) {
+      td->term->opts.close_cb(td->term->data);
+    }
+    goto end;
+  }
+
   vterm_input_write(td->term->vt, td->data, td->len);
   vterm_screen_flush_damage(td->term->vts);
+end:
   kmp_free(TerminalDataPool, terminal_data_pool, td);
 }
 
@@ -872,5 +888,5 @@ static void on_damage(Event event)
 
 static int cursor_line(Terminal *term)
 {
-  return term->cursor.row + term->sb_current + 1;
+  return term->cursor.row + (int)term->sb_current + 1;
 }

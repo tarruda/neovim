@@ -324,7 +324,7 @@ close_buffer (
 
   if (buf->terminal && (unload_buf || del_buf || wipe_buf)) {
     // terminal buffers can only be wiped
-    terminal_close(buf->terminal);
+    terminal_close(buf->terminal, NULL);
     unload_buf = true;
     del_buf = true;
     wipe_buf = true;

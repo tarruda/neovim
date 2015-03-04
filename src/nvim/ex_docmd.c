@@ -8878,6 +8878,12 @@ static void ex_folddo(exarg_T *eap)
   ml_clearmarked();        /* clear rest of the marks */
 }
 
+typedef struct {
+  Job *job;
+  Terminal *term;
+  bool exited;
+} TerminalJobData;
+
 static void ex_terminal(exarg_T *eap)
 {
   TerminalOptions topts = TERMINAL_OPTIONS_INIT;
@@ -8891,12 +8897,13 @@ static void ex_terminal(exarg_T *eap)
   if (!term) {
     return;
   }
+  TerminalJobData *data = xmalloc(sizeof(TerminalJobData));
 
   // build argument vector from the :terminal command line
   char cmd[256];
   snprintf(cmd, sizeof(cmd), "%s", eap->arg);
   JobOptions opts = JOB_OPTIONS_INIT;
-  opts.data = term;
+  opts.data = data;
   opts.argv = shell_build_argv(!strcmp(cmd, "") ? NULL : cmd, NULL);
   opts.stdout_cb = on_job_output;
   opts.stderr_cb = on_job_output;
@@ -8907,12 +8914,15 @@ static void ex_terminal(exarg_T *eap)
   opts.term_name = xstrdup("xterm-256color");
   int status;
   Job *job = job_start(opts, &status);
+  data->term = term;
+  data->job = job;
+  data->exited = false;
 
   char title[256];
   snprintf(title, sizeof(title), "[%s(pid: %d)]", 
       !strcmp(cmd, "") ? (char *)p_sh : cmd, job_pid(job));
   terminal_set_title(term, title);
-  terminal_set_data(term, job);
+  terminal_set_data(term, data);
 
   if (status == 0) {
     EMSG(e_jobtblfull);
@@ -8925,20 +8935,14 @@ static void ex_terminal(exarg_T *eap)
 
 static void term_write(char *buf, size_t size, void *data)
 {
-  Job *job = data;
+  Job *job = ((TerminalJobData *)data)->job;
   WBuffer *wbuf = wstream_new_buffer(xmemdup(buf, size), size, 1, free);
   job_write(job, wbuf);
 }
 
 static void term_resize(uint16_t width, uint16_t height, void *data)
 {
-  job_resize(data, width, height);
-}
-
-static void term_close(void *data)
-{
-  job_close_streams(data);
-  job_stop(data);
+  job_resize(((TerminalJobData *)data)->job, width, height);
 }
 
 static void on_job_output(RStream *rstream, void *data, bool eof)
@@ -8946,12 +8950,27 @@ static void on_job_output(RStream *rstream, void *data, bool eof)
   if (!eof) {
     char *ptr = rstream_read_ptr(rstream);
     size_t len = rstream_pending(rstream);
-    terminal_receive(job_data(data), ptr, len);
+    terminal_receive(((TerminalJobData *)job_data(data))->term, ptr, len);
     rbuffer_consumed(rstream_buffer(rstream), len);
   }
 }
 
 static void on_job_exit(Job *job, void *data)
 {
-  terminal_exit(data);
+  TerminalJobData *d = data;
+  if (!d->exited) {
+    d->exited = true;
+    terminal_close(d->term, _("\r\n[Program exited, press any key to close]"));
+  }
+}
+
+static void term_close(void *data)
+{
+  TerminalJobData *d = data;
+  if (!d->exited) {
+    job_close_streams(d->job);
+    job_stop(d->job);
+  }
+  terminal_destroy(d->term);
+  free(d);
 }
