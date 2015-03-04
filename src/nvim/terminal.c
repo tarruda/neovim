@@ -136,18 +136,6 @@ Terminal *terminal_open(TerminalOptions opts)
   if (do_ecmd(0, NULL, NULL, NULL, ECMD_ONE, flags, NULL) == FAIL) {
     return NULL;
   }
-  set_option_value((uint8_t *)"buftype", 0, (uint8_t *)"nofile", OPT_LOCAL);
-  set_option_value((uint8_t *)"swapfile", false, NULL, OPT_LOCAL);
-  set_option_value((uint8_t *)"bufhidden", 0, (uint8_t *)"hide", OPT_LOCAL);
-  set_option_value((uint8_t *)"undolevels", 0, NULL, OPT_LOCAL);
-  set_option_value((uint8_t *)"foldenable", false, NULL, OPT_LOCAL);
-  set_option_value((uint8_t *)"wrap", false, NULL, OPT_LOCAL);
-  set_option_value((uint8_t *)"number", false, NULL, OPT_LOCAL);
-  set_option_value((uint8_t *)"relativenumber", false, NULL, OPT_LOCAL);
-  set_option_value((uint8_t *)"textwidth", 0, NULL, OPT_LOCAL);
-  RESET_BINDING(curwin);
-  invalidate_botline();
-  redraw_later(NOT_VALID);
   // Create a new terminal instance and configure it
   Terminal *rv = xcalloc(1, sizeof(Terminal));
   rv->opts = opts;
@@ -173,6 +161,13 @@ Terminal *terminal_open(TerminalOptions opts)
   vterm_screen_set_callbacks(rv->vts, &vterm_screen_callbacks, rv);
   vterm_screen_set_damage_merge(rv->vts, VTERM_DAMAGE_SCROLL);
   vterm_screen_reset(rv->vts, 1);
+  set_option_value((uint8_t *)"buftype", 0, (uint8_t *)"terminal", OPT_LOCAL);
+  set_option_value((uint8_t *)"wrap", false, NULL, OPT_LOCAL);
+  set_option_value((uint8_t *)"number", false, NULL, OPT_LOCAL);
+  set_option_value((uint8_t *)"relativenumber", false, NULL, OPT_LOCAL);
+  RESET_BINDING(curwin);
+  invalidate_botline();
+  redraw_later(NOT_VALID);
   return rv;
 }
 

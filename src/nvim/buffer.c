@@ -306,20 +306,21 @@ close_buffer (
   bool del_buf = (action == DOBUF_DEL || action == DOBUF_WIPE);
   bool wipe_buf = (action == DOBUF_WIPE);
 
-  /*
-   * Force unloading or deleting when 'bufhidden' says so.
-   * The caller must take care of NOT deleting/freeing when 'bufhidden' is
-   * "hide" (otherwise we could never free or delete a buffer).
-   */
-  if (buf->b_p_bh[0] == 'd') {          /* 'bufhidden' == "delete" */
-    del_buf = true;
-    unload_buf = true;
-  } else if (buf->b_p_bh[0] == 'w') { /* 'bufhidden' == "wipe" */
-    del_buf = true;
-    unload_buf = true;
-    wipe_buf = true;
-  } else if (buf->b_p_bh[0] == 'u')     /* 'bufhidden' == "unload" */
-    unload_buf = true;
+  // Force unloading or deleting when 'bufhidden' says so, but not for terminal
+  // buffers.
+  // The caller must take care of NOT deleting/freeing when 'bufhidden' is
+  // "hide" (otherwise we could never free or delete a buffer).
+  if (!buf->terminal) {
+    if (buf->b_p_bh[0] == 'd') {        // 'bufhidden' == "delete"
+      del_buf = true;
+      unload_buf = true;
+    } else if (buf->b_p_bh[0] == 'w') { // 'bufhidden' == "wipe"
+      del_buf = true;
+      unload_buf = true;
+      wipe_buf = true;
+    } else if (buf->b_p_bh[0] == 'u')   // 'bufhidden' == "unload"
+      unload_buf = true;
+  }
 
   if (buf->terminal && (unload_buf || del_buf || wipe_buf)) {
     // terminal buffers can only be wiped
