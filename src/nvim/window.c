@@ -1769,6 +1769,12 @@ static int close_last_window_tabpage(win_T *win, int free_buf, tabpage_T *prev_c
   }
   buf_T   *old_curbuf = curbuf;
 
+  Terminal *term = win->w_buffer->terminal;
+  if (term) {
+    // Don't free terminal buffers
+    free_buf = false;
+  }
+
   /*
    * Closing the last window in a tab page.  First go to another tab
    * page and then close the window and the tab page.  This avoids that
@@ -1793,6 +1799,13 @@ static int close_last_window_tabpage(win_T *win, int free_buf, tabpage_T *prev_c
     if (h != tabline_height())
       shell_new_rows();
   }
+
+  if (term) {
+    // When a window containing a terminal buffer is closed, recalculate its
+    // size
+    terminal_resize(term, 0, 0);
+  }
+
   /* Since goto_tabpage_tp above did not trigger *Enter autocommands, do
    * that now. */
   apply_autocmds(EVENT_TABCLOSED, prev_idx, prev_idx, FALSE, curbuf);
@@ -1966,7 +1979,6 @@ int win_close(win_T *win, int free_buf)
    * before it was opened. */
   if (help_window)
     restore_snapshot(SNAP_HELP_IDX, close_curwin);
-
 
   redraw_all_later(NOT_VALID);
   return OK;

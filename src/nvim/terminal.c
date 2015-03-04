@@ -195,7 +195,7 @@ void terminal_resize(Terminal *term, uint16_t width, uint16_t height)
   
   // the actual new width/height are the minimum for all windows that display
   // the terminal
-  FOR_ALL_TAB_WINDOWS(tp, wp) {
+  FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
     if (wp->w_buffer == term->buf) {
       width = (uint16_t)MIN(width, (uint16_t)wp->w_width);
       height = (uint16_t)MIN(height, (uint16_t)wp->w_height);
