@@ -231,6 +231,7 @@ void terminal_enter(Terminal *term, bool process_deferred)
   term->curwin = curwin;
   // go to the bottom when the terminal is focused
   adjust_topline(term);
+  changed_lines(cursor_line(term), 0, cursor_line(term) + 1, 0);
   flush_updates();
   bool close = false;
   int c;
@@ -246,15 +247,14 @@ void terminal_enter(Terminal *term, bool process_deferred)
       event_disable_deferred();
     }
 
-got_char:
     switch (c) {
       case Ctrl_BSL:
         c = safe_vgetc();
         if (c == Ctrl_N) {
           goto end;
         }
-        terminal_send_key(term, Ctrl_BSL);
-        goto got_char;
+        terminal_send_key(term, c);
+        break;
 
       case K_LEFTMOUSE:
       case K_LEFTDRAG:
@@ -290,6 +290,7 @@ got_char:
 end:
   term->focused = false;
   State = save_state;
+  changed_lines(cursor_line(term), 0, cursor_line(term) + 1, 0);
   ui_unlock_cursor_state();
   ui_cursor_on();
   term->curwin = NULL;
@@ -416,7 +417,7 @@ void terminal_get_line_attributes(Terminal *term, int line, int *term_attrs)
         .rgb_bg_color = RGB(0x8a, 0xe2, 0x34),
         .cterm_ae_attr = 0,
         .cterm_fg_color = 0,
-        .cterm_bg_color = 11,
+        .cterm_bg_color = term->focused ? 11 : 12,
       }));
     }
 
@@ -867,4 +868,9 @@ static void on_damage(Event event)
   pmap_clear(ptr_t)(damaged_terminals);
   unblock_autocmds();
   flush_updates();
+}
+
+static int cursor_line(Terminal *term)
+{
+  return term->cursor.row + term->sb_current + 1;
 }
