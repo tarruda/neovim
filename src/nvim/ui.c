@@ -23,6 +23,7 @@
 #include "nvim/normal.h"
 #include "nvim/option.h"
 #include "nvim/os_unix.h"
+#include "nvim/os/event.h"
 #include "nvim/os/time.h"
 #include "nvim/os/input.h"
 #include "nvim/os/signal.h"
@@ -211,10 +212,8 @@ void ui_detach(UI *ui)
   }
 
   ui_count--;
-
-  if (ui_count) {
-    ui_refresh();
-  }
+  // schedule a refresh
+  event_push((Event) { .handler = refresh }, false);
 }
 
 void ui_clear(void)
@@ -487,5 +486,12 @@ static void ui_change_mode(void)
     showing_insert_mode = FALSE;
   }
   conceal_check_cursur_line();
+}
+
+static void refresh(Event event)
+{
+  if (ui_count) {
+    ui_refresh();
+  }
 }
 
