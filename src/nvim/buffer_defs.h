@@ -101,6 +101,9 @@ typedef struct file_buffer buf_T;       /* forward declaration */
 // for FileID
 #include "nvim/os/fs_defs.h"
 
+// for Terminal
+#include "nvim/terminal.h"
+
 /*
  * The taggy struct is used to store the information about a :tag command.
  */
@@ -749,6 +752,8 @@ struct file_buffer {
                                  * may use a different synblock_T. */
 
   signlist_T *b_signlist;       /* list of signs to draw */
+
+  Terminal *terminal;           // Terminal instance associated with the buffer
 };
 
 /*
@@ -1154,7 +1159,7 @@ struct window_S {
 
 static inline bool can_modify(buf_T *buf)
 {
-  return buf->b_p_ma;
+  return !buf->terminal && buf->b_p_ma;
 }
 
 #endif // NVIM_BUFFER_DEFS_H

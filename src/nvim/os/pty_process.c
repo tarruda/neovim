@@ -107,8 +107,18 @@ bool pty_process_spawn(Job *job)
 
 void pty_process_close(Job *job)
 {
+  pty_process_close_master(job);
   job_close_streams(job);
   job_decref(job);
+}
+
+void pty_process_close_master(Job *job)
+{
+  PtyProcess *ptyproc = job->process;
+  if (ptyproc->tty_fd) {
+    close(ptyproc->tty_fd);
+    ptyproc->tty_fd = -1;
+  }
 }
 
 void pty_process_resize(Job *job, uint16_t width, uint16_t height)

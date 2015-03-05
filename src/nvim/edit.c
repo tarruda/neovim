@@ -244,6 +244,11 @@ edit (
     long count
 )
 {
+  if (curbuf->terminal) {
+    terminal_enter(curbuf->terminal, true);
+    return false;
+  }
+
   int c = 0;
   char_u      *ptr;
   int lastc;
