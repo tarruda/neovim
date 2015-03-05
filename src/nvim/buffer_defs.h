@@ -1152,4 +1152,9 @@ struct window_S {
   qf_info_T   *w_llist_ref;
 };
 
+static inline bool can_modify(buf_T *buf)
+{
+  return buf->b_p_ma;
+}
+
 #endif // NVIM_BUFFER_DEFS_H
