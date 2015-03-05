@@ -81,6 +81,7 @@ void event_teardown(void)
   job_teardown();
   server_teardown();
   signal_teardown();
+  terminal_teardown();
   // this last `uv_run` will return after all handles are stopped, it will
   // also take care of finishing any uv_close calls made by other *_teardown
   // functions.
