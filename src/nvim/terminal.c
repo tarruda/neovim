@@ -368,6 +368,7 @@ void terminal_destroy(Terminal *term)
   for (size_t i = 0 ; i < term->sb_current; i++) {
     free(term->sb_buffer[i]);
   }
+  free(term->title);
   free(term->sb_buffer);
   vterm_free(term->vt);
   free(term);
@@ -860,6 +861,13 @@ static void refresh_scrollback(Terminal *term)
     ml_delete(buf_index, false);
     deleted_lines(buf_index, 1);
     term->sb_pending++;
+  }
+
+  // Remove extra lines at the bottom
+  int max_line_count = (int)term->sb_current + height;
+  while (term->buf->b_ml.ml_line_count > max_line_count) {
+    ml_delete(term->buf->b_ml.ml_line_count, false);
+    deleted_lines(term->buf->b_ml.ml_line_count, 1);
   }
 }
 
