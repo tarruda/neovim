@@ -807,7 +807,7 @@ static void refresh_scrollback(Terminal *term)
     // became full and libvterm had to push all rows up. Convert the first
     // pending scrollback row into a string and append it just above the visible
     // section of the buffer
-    if (((int)term->buf->b_ml.ml_line_count - height) > (int)term->sb_size) {
+    if (((int)term->buf->b_ml.ml_line_count - height) >= (int)term->sb_size) {
       // scrollback full, delete lines at the top
       ml_delete(1, false);
       deleted_lines(1, 1);
@@ -857,14 +857,6 @@ static void refresh_screen(Terminal *term)
       ml_append(linenr - 1, (uint8_t *)term->textbuf, 0, false);
       added++;
     }
-  }
-
-  // After refresh, there may be extra lines due to resize of scrollback
-  // pushs, delete it now.
-  int max_line_count = (int)term->sb_current + height;
-  while (max_line_count < term->buf->b_ml.ml_line_count) {
-    ml_delete(max_line_count, false);
-    added--;
   }
 
   int change_start = term->invalid_start + (int)term->sb_current + 1;
