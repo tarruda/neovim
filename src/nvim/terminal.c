@@ -1,7 +1,39 @@
-// Terminals attached to nvim buffers, inspired by
-// vimshell(http://www.wana.at/vimshell/) and
-// Conque(https://code.google.com/p/conque/).
-// Libvterm usage instructions (plus some extra code) were taken from
+// VT220/xterm-like terminal emulator implementation for Neovim. Powered by
+// libvterm(http://www.leonerd.org.uk/code/libvterm/).
+//
+// libvterm is a pure C99 terminal emulation library with abstract input and
+// display.  This means that the library needs to read data from the master fd
+// and feed VTerm instances, which will will invoke user callbacks with screen
+// update instructions, that must be mirrored to the real display.
+//
+// Keys are pressed in VTerm instances by calling
+// vterm_keyboard_key/vterm_keyboard_unichar, which generates byte streams that
+// must also be fed to the master fd.
+//
+// This implementation uses Neovim buffers as the display mechanism for both the
+// visible screen and the scrollback buffer. When focused, the window "pins" to
+// the bottom of the buffer and mirrors libvterm screen state.
+//
+// When a line becomes invisible due to a decrease in screen height or
+// because a line was pushed up during normal terminal output, we store the line
+// information in the scrollback buffer, which is also mirrored in the Neovim
+// buffer by appending lines just above the visible part of the buffer.
+//
+// When the screen height increases, libvterm will ask for a row in the
+// scrollback buffer, which is also mirrored in the Neovim buffer by deleting
+// lines above the visible part of the buffer.
+//
+// The vterm->Neovim synchronization is done in batches in intervals of 30
+// milliseconds. This is done to increase refresh performance when receiving
+// large bursts of data.
+//
+// This module is decoupled from the processes that normally feed it data, so
+// its possible to use it as a general purpose console buffer(possibly as a
+// log/display mechanism for Neovim in the future)
+//
+// Inspired by vimshell(http://www.wana.at/vimshell/) and
+// Conque(https://code.google.com/p/conque/).  Libvterm usage instructions (plus
+// some extra code) were taken from
 // pangoterm(http://www.leonerd.org.uk/code/pangoterm/)
 #include <assert.h>
 #include <stdio.h>
