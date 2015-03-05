@@ -2,30 +2,29 @@
 // libvterm(http://www.leonerd.org.uk/code/libvterm/).
 //
 // libvterm is a pure C99 terminal emulation library with abstract input and
-// display.  This means that the library needs to read data from the master fd
-// and feed VTerm instances, which will will invoke user callbacks with screen
-// update instructions, that must be mirrored to the real display.
+// display. This means that the library needs to read data from the master fd
+// and feed VTerm instances, which will invoke user callbacks with screen
+// update instructions that must be mirrored to the real display.
 //
 // Keys are pressed in VTerm instances by calling
 // vterm_keyboard_key/vterm_keyboard_unichar, which generates byte streams that
-// must also be fed to the master fd.
+// must be fed back to the master fd.
 //
 // This implementation uses Neovim buffers as the display mechanism for both the
 // visible screen and the scrollback buffer. When focused, the window "pins" to
 // the bottom of the buffer and mirrors libvterm screen state.
 //
-// When a line becomes invisible due to a decrease in screen height or
-// because a line was pushed up during normal terminal output, we store the line
-// information in the scrollback buffer, which is also mirrored in the Neovim
-// buffer by appending lines just above the visible part of the buffer.
+// When a line becomes invisible due to a decrease in screen height or because a
+// line was pushed up during normal terminal output, we store the line
+// information in the scrollback buffer which is mirrored in the Neovim buffer
+// by appending lines just above the visible part of the buffer.
 //
 // When the screen height increases, libvterm will ask for a row in the
-// scrollback buffer, which is also mirrored in the Neovim buffer by deleting
-// lines above the visible part of the buffer.
+// scrollback buffer, which is mirrored in the Neovim buffer by deleting lines
+// above the visible part of the buffer.
 //
-// The vterm->Neovim synchronization is done in batches in intervals of 30
-// milliseconds. This is done to increase refresh performance when receiving
-// large bursts of data.
+// The vterm->Neovim synchronization is in intervals of 30 milliseconds. This is
+// done to increase refresh performance when receiving large bursts of data.
 //
 // This module is decoupled from the processes that normally feed it data, so
 // its possible to use it as a general purpose console buffer(possibly as a
@@ -80,8 +79,8 @@
 // data.
 #define REFRESH_DELAY 30
 
-uv_timer_t refresh_timer;
-bool refresh_pending = false;
+static uv_timer_t refresh_timer;
+static bool refresh_pending = false;
 
 typedef struct {
   size_t cols;
@@ -120,7 +119,7 @@ struct terminal {
   // input focused
   bool focused;
   // some vterm properties
-  bool forward_mouse, altscreen;
+  bool forward_mouse;
   // invalid rows libvterm screen
   int invalid_start, invalid_end;
   struct {
@@ -130,6 +129,8 @@ struct terminal {
   // which mouse button is pressed
   int pressed_button;
   char *title, *old_title;
+  // pending width/height
+  bool pending_resize;
 };
 
 static VTermScreenCallbacks vterm_screen_callbacks = {
@@ -215,23 +216,24 @@ Terminal *terminal_open(TerminalOptions opts)
   set_option_value((uint8_t *)"number", false, NULL, OPT_LOCAL);
   set_option_value((uint8_t *)"relativenumber", false, NULL, OPT_LOCAL);
   RESET_BINDING(curwin);
-  invalidate_botline();
-  redraw_later(NOT_VALID);
   return rv;
 }
 
 void terminal_close(Terminal *term, char *msg)
 {
+  if (term->closed) {
+    return;
+  }
+
+  term->forward_mouse = false;
+  term->closed = true;
   if (msg) {
     terminal_receive(term, msg, strlen(msg));
   } else {
     // If no msg was given, this was called by close_buffer(buffer.c) so we
     // should not wait for the user to press a key
-    term->destroy = true;
+    term->opts.close_cb(term->data);
   }
-  // treat the terminal close any data event to ensure it only closes after all
-  // pending redraws.
-  terminal_receive(term, NULL, 0);
 }
 
 void terminal_set_title(Terminal *term, char *title)
@@ -243,6 +245,11 @@ void terminal_set_title(Terminal *term, char *title)
 
 void terminal_resize(Terminal *term, uint16_t width, uint16_t height)
 {
+  if (term->closed) {
+    // will be called after exited if two windows display the same terminal and
+    // one of the is closed as a consequence of pressing a key.
+    return;
+  }
   int curwidth, curheight;
   vterm_get_size(term->vt, &curheight, &curwidth);
 
@@ -269,7 +276,8 @@ void terminal_resize(Terminal *term, uint16_t width, uint16_t height)
 
   vterm_set_size(term->vt, height, width);
   vterm_screen_flush_damage(term->vts);
-  term->opts.resize_cb((uint16_t)width, height, term->data);
+  term->pending_resize = true;
+  invalidate_terminal(term);
 }
 
 void terminal_enter(Terminal *term, bool process_deferred)
@@ -292,8 +300,10 @@ void terminal_enter(Terminal *term, bool process_deferred)
   // go to the bottom when the terminal is focused
   adjust_topline(term);
   changed_lines(cursor_line(term), 0, cursor_line(term) + 1, 0);
-  flush_updates();
+  showmode();
+  redraw();
   int c;
+  bool close = false;
 
   for (;;) {
     if (process_deferred) {
@@ -304,10 +314,6 @@ void terminal_enter(Terminal *term, bool process_deferred)
 
     if (process_deferred) {
       event_disable_deferred();
-    }
-
-    if (term->closed) {
-      goto end;
     }
 
     switch (c) {
@@ -340,10 +346,15 @@ void terminal_enter(Terminal *term, bool process_deferred)
         break;
 
       default:
+        if (term->closed) {
+          close = true;
+          goto end;
+        }
+
         terminal_send_key(term, c);
     }
 
-    flush_updates();
+    redraw();
   }
 
 end:
@@ -355,14 +366,16 @@ end:
   ui_cursor_on();
   term->curwin = NULL;
   mapped_ctrl_c = save_mapped_ctrl_c;
-  if (term->closed) {
-    term->buf = NULL;
+  unshowmode(true);
+  redraw();
+  if (close) {
     term->opts.close_cb(term->data);
   }
 }
 
 void terminal_destroy(Terminal *term)
 {
+  term->buf->terminal = NULL;
   pmap_del(ptr_t)(invalidated_terminals, term);
   do_cmdline_cmd((uint8_t *)"bwipeout!");
   for (size_t i = 0 ; i < term->sb_current; i++) {
@@ -381,6 +394,9 @@ void terminal_set_data(Terminal *term, void *data)
 
 void terminal_send(Terminal *term, char *data, size_t size)
 {
+  if (term->closed) {
+    return;
+  }
   term->opts.write_cb(data, size, term->data);
 }
 
@@ -403,11 +419,6 @@ void terminal_send_key(Terminal *term, int c)
 void terminal_receive(Terminal *term, char *data, size_t len)
 {
   if (!data) {
-    term->closed = true;
-    term->buf->terminal = NULL;
-    if (term->destroy) {
-      term->opts.close_cb(term->data);
-    }
     return;
   }
 
@@ -466,7 +477,8 @@ void terminal_get_line_attributes(Terminal *term, int line, int *term_attrs)
       attr_id = hl_combine_attr(attr_id, get_attr_entry(&(attrentry_T) {
         .rgb_ae_attr = 0,
         .rgb_fg_color = -1,
-        .rgb_bg_color = RGB(0x8a, 0xe2, 0x34),
+        .rgb_bg_color = term->focused ? RGB(0x8a, 0xe2, 0x34)
+                                      : RGB(0xfc, 0xe9, 0x4f),
         .cterm_ae_attr = 0,
         .cterm_fg_color = 0,
         .cterm_bg_color = term->focused ? 11 : 12,
@@ -518,7 +530,6 @@ static int term_settermprop(VTermProp prop, VTermValue *val, void *data)
 
   switch(prop) {
     case VTERM_PROP_ALTSCREEN:
-      term->altscreen = val->boolean;
       break;
 
     case VTERM_PROP_CURSORVISIBLE:
@@ -816,9 +827,12 @@ static void on_refresh(Event event)
 {
   Terminal *term;
   void *stub; (void)(stub);
+  // dont process autocommands while updating terminal buffers. JobActivity can
+  // be used act on terminal output.
   block_autocmds();
   map_foreach(invalidated_terminals, term, stub, {
     WITH_BUFFER(term->buf, {
+      refresh_size(term);
       refresh_scrollback(term);
       refresh_screen(term);
       refresh_title(term);
@@ -826,7 +840,20 @@ static void on_refresh(Event event)
   });
   pmap_clear(ptr_t)(invalidated_terminals);
   unblock_autocmds();
-  flush_updates();
+  redraw();
+}
+
+static void refresh_size(Terminal *term)
+{
+  if (!term->pending_resize || term->closed) {
+    return;
+  }
+
+  int width, height;
+  vterm_get_size(term->vt, &height, &width);
+  term->invalid_start = 0;
+  term->invalid_end = height;
+  term->opts.resize_cb((uint16_t)width, (uint16_t)height, term->data);
 }
 
 // Refresh the scrollback of a invalidated terminal
@@ -875,10 +902,10 @@ static void refresh_scrollback(Terminal *term)
 // focused) of a invalidated terminal
 static void refresh_screen(Terminal *term)
 {
-  int height;
-  int width;
   int changed = 0;
   int added = 0;
+  int height;
+  int width;
   vterm_get_size(term->vt, &height, &width);
 
   for (int r = term->invalid_start; r < term->invalid_end; r++) {
@@ -916,29 +943,30 @@ static void refresh_title(Terminal *term)
   }
 }
 
-static void flush_updates(void)
+static void redraw(void)
 {
   block_autocmds();
-  update_topline();
+
   validate_cursor();
 
-  if (VIsual_active) {
-    update_curbuf(INVERTED);
-  } else if (must_redraw) {
+  if (must_redraw) {
     update_screen(0);
-  } else if (redraw_cmdline || clear_cmdline) {
-    showmode();
   }
+
   redraw_statuslines();
+
   if (need_maketitle) {
     maketitle();
   }
+
   showruler(false);
+
   Terminal *term = curbuf->terminal;
   if (term && term->focused && term->cursor.visible) {
     curwin->w_wrow = term->cursor.row;
     curwin->w_wcol = term->cursor.col;
   }
+
   setcursor();
   ui_cursor_on();
   ui_flush();

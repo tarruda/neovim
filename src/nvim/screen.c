@@ -6595,7 +6595,8 @@ int showmode(void)
   int sub_attr;
 
   do_mode = ((p_smd && msg_silent == 0)
-             && ((State & INSERT)
+             && ((State & TERM_FOCUS)
+                 || (State & INSERT)
                  || restart_edit
                  || VIsual_active
                  ));
@@ -6651,7 +6652,9 @@ int showmode(void)
           }
         }
       } else {
-        if (State & VREPLACE_FLAG)
+        if (State & TERM_FOCUS) {
+          MSG_PUTS_ATTR(_(" TERMINAL"), attr);
+        } else if (State & VREPLACE_FLAG)
           MSG_PUTS_ATTR(_(" VREPLACE"), attr);
         else if (State & REPLACE_FLAG)
           MSG_PUTS_ATTR(_(" REPLACE"), attr);
