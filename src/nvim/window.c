@@ -1806,6 +1806,7 @@ static int close_last_window_tabpage(win_T *win, int free_buf, tabpage_T *prev_c
   /* Since goto_tabpage_tp above did not trigger *Enter autocommands, do
    * that now. */
   apply_autocmds(EVENT_TABCLOSED, prev_idx, prev_idx, FALSE, curbuf);
+  focus_if_terminal();
   apply_autocmds(EVENT_WINENTER, NULL, NULL, FALSE, curbuf);
   apply_autocmds(EVENT_TABENTER, NULL, NULL, FALSE, curbuf);
   if (old_curbuf != curbuf)
@@ -2964,6 +2965,7 @@ int win_new_tabpage(int after)
 
 
     redraw_all_later(CLEAR);
+    focus_if_terminal();
     apply_autocmds(EVENT_WINENTER, NULL, NULL, FALSE, curbuf);
     apply_autocmds(EVENT_TABENTER, NULL, NULL, FALSE, curbuf);
     return OK;
@@ -3532,6 +3534,7 @@ static void win_enter_ext(win_T *wp, bool undo_sync, int curwin_invalid, int tri
   }
 
   if (trigger_enter_autocmds) {
+    focus_if_terminal();
     apply_autocmds(EVENT_WINENTER, NULL, NULL, FALSE, curbuf);
     if (other_buffer)
       apply_autocmds(EVENT_BUFENTER, NULL, NULL, FALSE, curbuf);
@@ -5594,3 +5597,9 @@ static int frame_check_width(frame_T *topfrp, int width)
   return TRUE;
 }
 
+static inline void focus_if_terminal(void)
+{
+  if (curbuf->terminal) {
+    ins_char_typebuf('i');
+  }
+}
