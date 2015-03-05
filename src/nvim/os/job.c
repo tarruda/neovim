@@ -207,10 +207,16 @@ void job_stop(Job *job)
   }
 
   job->stopped_time = os_hrtime();
-  // Close the job's stdin. If the job doesn't close it's own stdout/stderr,
-  // they will be closed when the job exits(possibly due to being terminated
-  // after a timeout)
-  close_job_in(job);
+  if (job->opts.pty) {
+    // close all streams for pty jobs to send SIGHUP to the process
+    job_close_streams(job);
+    pty_process_close_master(job);
+  } else {
+    // Close the job's stdin. If the job doesn't close it's own stdout/stderr,
+    // they will be closed when the job exits(possibly due to being terminated
+    // after a timeout)
+    close_job_in(job);
+  }
 
   if (!stop_requests++) {
     // When there's at least one stop request pending, start a timer that
