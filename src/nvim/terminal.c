@@ -113,7 +113,6 @@ struct terminal {
   buf_T *buf;
   // window that has terminal focus. NULL when the terminal is unfocused.
   win_T *curwin;
-  void *data;
   // program exited
   bool closed, destroy;
   // input focused
@@ -129,6 +128,7 @@ struct terminal {
   // which mouse button is pressed
   int pressed_button;
   char *title, *old_title;
+  size_t title_len;
   // pending width/height
   bool pending_resize;
 };
@@ -186,13 +186,10 @@ void terminal_teardown(void)
 
 Terminal *terminal_open(TerminalOptions opts)
 {
-  int flags = opts.force ? ECMD_FORCEIT : 0;
-  if (do_ecmd(0, NULL, NULL, NULL, ECMD_ONE, flags, NULL) == FAIL) {
-    return NULL;
-  }
   // Create a new terminal instance and configure it
   Terminal *rv = xcalloc(1, sizeof(Terminal));
   rv->opts = opts;
+  rv->title_len = strlen(opts.title) + 64;
   rv->sb_size = SCROLLBACK_DEFAULT_SIZE;
   rv->sb_buffer = xmalloc(sizeof(ScrollbackLine *) * rv->sb_size);
   rv->cursor.visible = true;
@@ -234,15 +231,8 @@ void terminal_close(Terminal *term, char *msg)
   } else {
     // If no msg was given, this was called by close_buffer(buffer.c) so we
     // should not wait for the user to press a key
-    term->opts.close_cb(term->data);
+    term->opts.close_cb(term->opts.data);
   }
-}
-
-void terminal_set_title(Terminal *term, char *title)
-{
-  free(term->title);
-  term->title = xstrdup(title);
-  invalidate_terminal(term, -1, -1);
 }
 
 void terminal_resize(Terminal *term, uint16_t width, uint16_t height)
@@ -367,7 +357,7 @@ end:
   unshowmode(true);
   redraw();
   if (close) {
-    term->opts.close_cb(term->data);
+    term->opts.close_cb(term->opts.data);
     do_cmdline_cmd((uint8_t *)"bwipeout!");
   }
 }
@@ -386,17 +376,12 @@ void terminal_destroy(Terminal *term)
   free(term);
 }
 
-void terminal_set_data(Terminal *term, void *data)
-{
-  term->data = data;
-}
-
 void terminal_send(Terminal *term, char *data, size_t size)
 {
   if (term->closed) {
     return;
   }
-  term->opts.write_cb(data, size, term->data);
+  term->opts.write_cb(data, size, term->opts.data);
 }
 
 void terminal_send_key(Terminal *term, int c)
@@ -519,9 +504,15 @@ static int term_settermprop(VTermProp prop, VTermValue *val, void *data)
       term->cursor.visible = val->boolean;
       break;
 
-    case VTERM_PROP_TITLE:
-      terminal_set_title(term, val->string);
+    case VTERM_PROP_TITLE: {
+      term->old_title = NULL;
+      free(term->title);
+      term->title = xmallocz(term->title_len);
+      snprintf(term->title, term->title_len, "%s [%s]", term->opts.title,
+          val->string);
+      invalidate_terminal(term, -1, -1);
       break;
+    }
 
     case VTERM_PROP_MOUSE:
       term->forward_mouse = (bool)val->number;
@@ -866,7 +857,7 @@ static void refresh_size(Terminal *term)
   vterm_get_size(term->vt, &height, &width);
   term->invalid_start = 0;
   term->invalid_end = height;
-  term->opts.resize_cb((uint16_t)width, (uint16_t)height, term->data);
+  term->opts.resize_cb((uint16_t)width, (uint16_t)height, term->opts.data);
 }
 
 // Refresh the scrollback of a invalidated terminal
