@@ -20,8 +20,8 @@
 // by appending lines just above the visible part of the buffer.
 //
 // When the screen height increases, libvterm will ask for a row in the
-// scrollback buffer, which is mirrored in the Neovim buffer by deleting lines
-// above the visible part of the buffer.
+// scrollback buffer, which is mirrored in the Neovim buffer displaying lines
+// that were previously invisible.
 //
 // The vterm->Neovim synchronization is in intervals of 30 milliseconds. This is
 // done to increase refresh performance when receiving large bursts of data.
@@ -596,14 +596,18 @@ static int term_sb_pop(int cols, VTermScreenCell *cells, void *data)
 {
   Terminal *term = data;
 
-  if (!term->sb_current)
+  if (!term->sb_current) {
     return 0;
+  }
+
+  if (term->sb_pending) {
+    term->sb_pending--;
+  }
 
   // restore vterm state
   size_t c = (size_t)cols;
   ScrollbackLine *sbrow = term->sb_buffer[0];
   term->sb_current--;
-  term->sb_pending--;
   memmove(term->sb_buffer, term->sb_buffer + 1,
       sizeof(term->sb_buffer[0]) * (term->sb_current));
 
@@ -833,6 +837,7 @@ static void on_refresh(Event event)
       refresh_scrollback(term);
       refresh_screen(term);
       refresh_title(term);
+      adjust_topline(term);
     });
   });
   pmap_clear(ptr_t)(invalidated_terminals);
@@ -877,16 +882,6 @@ static void refresh_scrollback(Terminal *term)
     term->sb_pending--;
   }
 
-  while (term->sb_pending < 0) {
-    // This means the window height has increased. Delete the first line above
-    // the visible section of the buffer as it will be redrawn by
-    // `refresh_screen`
-    int buf_index = (int)term->buf->b_ml.ml_line_count - height;
-    ml_delete(buf_index, false);
-    deleted_lines(buf_index, 1);
-    term->sb_pending++;
-  }
-
   // Remove extra lines at the bottom
   int max_line_count = (int)term->sb_current + height;
   while (term->buf->b_ml.ml_line_count > max_line_count) {
@@ -926,7 +921,6 @@ static void refresh_screen(Terminal *term)
   int change_start = term->invalid_start + (int)term->sb_current + 1;
   int change_end = change_start + changed;
   changed_lines(change_start, 0, change_end, added);
-  adjust_topline(term);
   term->invalid_start = INT_MAX;
   term->invalid_end = -1;
 }
@@ -972,10 +966,12 @@ static void redraw(void)
 
 static void adjust_topline(Terminal *term)
 {
-  FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
+  int height, width;
+  vterm_get_size(term->vt, &height, &width);
+  FOR_ALL_TAB_WINDOWS(tp, wp) {
     if (wp->w_buffer == term->buf) {
       wp->w_cursor.lnum = term->buf->b_ml.ml_line_count;
-      set_topline(wp, MAX((int)term->sb_current + 1, 1));
+      set_topline(wp, term->buf->b_ml.ml_line_count - height);
     }
   }
 }
