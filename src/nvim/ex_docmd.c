@@ -8954,15 +8954,16 @@ static void on_job_exit(Job *job, void *data)
     d->exited = true;
     terminal_close(d->term, _("\r\n[Program exited, press any key to close]"));
   }
+  free(d);
 }
 
 static void term_close(void *data)
 {
   TerminalJobData *d = data;
   if (!d->exited) {
+    d->exited = true;
     job_close_streams(d->job);
     job_stop(d->job);
   }
   terminal_destroy(d->term);
-  free(d);
 }

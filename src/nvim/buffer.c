@@ -328,7 +328,7 @@ close_buffer (
     unload_buf = true;
     del_buf = true;
     wipe_buf = true;
-  } 
+  }
 
   if (win_valid(win)) {
     /* Set b_last_cursor when closing the last window for the buffer.

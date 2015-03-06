@@ -368,14 +368,15 @@ end:
   redraw();
   if (close) {
     term->opts.close_cb(term->data);
+    do_cmdline_cmd((uint8_t *)"bwipeout!");
   }
 }
 
 void terminal_destroy(Terminal *term)
 {
   term->buf->terminal = NULL;
+  term->buf = NULL;
   pmap_del(ptr_t)(invalidated_terminals, term);
-  do_cmdline_cmd((uint8_t *)"bwipeout!");
   for (size_t i = 0 ; i < term->sb_current; i++) {
     free(term->sb_buffer[i]);
   }
@@ -838,6 +839,10 @@ static void on_refresh(Event event)
   // be used act on terminal output.
   block_autocmds();
   map_foreach(invalidated_terminals, term, stub, {
+    if (!term->buf) {
+      // destroyed by `close_buffer`. Dont do anything else
+      continue;
+    }
     WITH_BUFFER(term->buf, {
       refresh_size(term);
       refresh_scrollback(term);
