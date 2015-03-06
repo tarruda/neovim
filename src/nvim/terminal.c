@@ -430,6 +430,7 @@ void terminal_get_line_attributes(Terminal *term, int line, int *term_attrs)
 {
   int height, width;
   vterm_get_size(term->vt, &height, &width);
+  assert(line);
   int row = line - (int)term->sb_current - 1;
 
   for (int col = 0; col < width; col++) {
@@ -837,8 +838,8 @@ static void on_refresh(Event event)
       refresh_scrollback(term);
       refresh_screen(term);
       refresh_title(term);
-      adjust_topline(term);
     });
+    adjust_topline(term);
   });
   pmap_clear(ptr_t)(invalidated_terminals);
   unblock_autocmds();
@@ -968,10 +969,10 @@ static void adjust_topline(Terminal *term)
 {
   int height, width;
   vterm_get_size(term->vt, &height, &width);
-  FOR_ALL_TAB_WINDOWS(tp, wp) {
+  FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
     if (wp->w_buffer == term->buf) {
       wp->w_cursor.lnum = term->buf->b_ml.ml_line_count;
-      set_topline(wp, term->buf->b_ml.ml_line_count - height);
+      set_topline(wp, MAX(wp->w_cursor.lnum - height + 1, 1));
     }
   }
 }
