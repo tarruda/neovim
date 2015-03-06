@@ -291,16 +291,13 @@ void terminal_enter(Terminal *term, bool process_deferred)
   int save_rd = RedrawingDisabled;
   State = TERM_FOCUS;
   RedrawingDisabled = false;
-  // hide nvim cursor and show terminal's
-  ui_cursor_off();
-  ui_lock_cursor_state();
-  // disable ctrl+c
   bool save_mapped_ctrl_c = mapped_ctrl_c;
   mapped_ctrl_c = true;
   // save the focused window while in this mode
   term->curwin = curwin;
   // go to the bottom when the terminal is focused
   adjust_topline(term);
+  // erase the unfocused cursor
   invalidate_terminal(term, term->cursor.row, term->cursor.row + 1);
   showmode();
   redraw();
@@ -363,9 +360,8 @@ end:
   term->focused = false;
   State = save_state;
   RedrawingDisabled = save_rd;
+  // draw the unfocused cursor
   invalidate_terminal(term, term->cursor.row, term->cursor.row + 1);
-  ui_unlock_cursor_state();
-  ui_cursor_on();
   term->curwin = NULL;
   mapped_ctrl_c = save_mapped_ctrl_c;
   unshowmode(true);
@@ -467,16 +463,15 @@ void terminal_get_line_attributes(Terminal *term, int linenr, int *term_attrs)
       });
     }
 
-    if (term->cursor.visible && term->cursor.row == row
+    if (!term->focused && term->cursor.visible && term->cursor.row == row
         && term->cursor.col == col) {
       attr_id = hl_combine_attr(attr_id, get_attr_entry(&(attrentry_T) {
         .rgb_ae_attr = 0,
         .rgb_fg_color = -1,
-        .rgb_bg_color = term->focused ? RGB(0x8a, 0xe2, 0x34)
-                                      : RGB(0xfc, 0xe9, 0x4f),
+        .rgb_bg_color = RGB(0xfc, 0xe9, 0x4f),
         .cterm_ae_attr = 0,
         .cterm_fg_color = 0,
-        .cterm_bg_color = term->focused ? 11 : 12,
+        .cterm_bg_color = 12,
       }));
     }
 
@@ -938,6 +933,7 @@ static void refresh_title(Terminal *term)
 static void redraw(void)
 {
   block_autocmds();
+  ui_cursor_off();
 
   validate_cursor();
 
