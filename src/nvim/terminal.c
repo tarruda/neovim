@@ -146,6 +146,7 @@ static VTermScreenCallbacks vterm_screen_callbacks = {
 static PMap(ptr_t) *invalidated_terminals;
 static Map(int, int) *color_indexes;
 static int default_vt_fg, default_vt_bg;
+static VTermColor default_vt_bg_rgb;
 
 void terminal_init(void)
 {
@@ -169,6 +170,7 @@ void terminal_init(void)
   vterm_state_get_default_colors(state, &fg, &bg);
   default_vt_fg = RGB(fg.red, fg.green, fg.blue);
   default_vt_bg = RGB(bg.red, bg.green, bg.blue);
+  default_vt_bg_rgb = bg;
   vterm_free(vt);
 }
 
@@ -299,7 +301,7 @@ void terminal_enter(Terminal *term, bool process_deferred)
   term->curwin = curwin;
   // go to the bottom when the terminal is focused
   adjust_topline(term);
-  invalidate_terminal(term, cursor_line(term), cursor_line(term) + 1);
+  invalidate_terminal(term, term->cursor.row, term->cursor.row + 1);
   showmode();
   redraw();
   int c;
@@ -361,7 +363,7 @@ end:
   term->focused = false;
   State = save_state;
   RedrawingDisabled = save_rd;
-  invalidate_terminal(term, cursor_line(term), cursor_line(term) + 1);
+  invalidate_terminal(term, term->cursor.row, term->cursor.row + 1);
   ui_unlock_cursor_state();
   ui_cursor_on();
   term->curwin = NULL;
@@ -426,24 +428,16 @@ void terminal_receive(Terminal *term, char *data, size_t len)
   vterm_screen_flush_damage(term->vts);
 }
 
-void terminal_get_line_attributes(Terminal *term, int line, int *term_attrs)
+void terminal_get_line_attributes(Terminal *term, int linenr, int *term_attrs)
 {
   int height, width;
   vterm_get_size(term->vt, &height, &width);
-  assert(line);
-  int row = line - (int)term->sb_current - 1;
+  assert(linenr);
+  int row = linenr_to_row(term, linenr);
 
   for (int col = 0; col < width; col++) {
     VTermScreenCell cell;
-    if (row >= 0) {
-      vterm_screen_get_cell(term->vts, (VTermPos){.row = row, .col = col},
-          &cell);
-    } else {
-      // fetch the cell from the scrollback buffer
-      ScrollbackLine *sbrow = term->sb_buffer[-row - 1];
-      cell = sbrow->cells[col];
-    }
-
+    fetch_cell(term, row, col, &cell);
     int vt_fg = RGB(cell.fg.red, cell.fg.green, cell.fg.blue);
     vt_fg = vt_fg != default_vt_fg ? vt_fg : - 1;
     int vt_bg = RGB(cell.bg.red, cell.bg.green, cell.bg.blue);
@@ -765,25 +759,52 @@ static bool send_mouse_event(Terminal *term, int c)
 // terminal buffer refresh & misc {{{
 
 
-// Helper to convert an array of VTermScreenCell to a utf8 string.
-#define CELLS_TO_TEXTBUF(term, count, fetch_cell_block)          \
-  do {                                                           \
-    char *ptr = term->textbuf;                                   \
-    size_t line_size = 0;                                        \
-    for (int i = 0; i < count; i++) {                            \
-      VTermScreenCell cell;                                      \
-      fetch_cell_block;                                          \
-      size_t size = cell_to_utf8(&cell, ptr);                    \
-      char c = *ptr;                                             \
-      ptr += size;                                               \
-      if (c != ' ') {                                            \
-        /* dont care about trailing whitespace */                \
-        line_size = (size_t)(ptr - term->textbuf);               \
-      }                                                          \
-    }                                                            \
-    /* trim trailing whitespace */                               \
-    term->textbuf[line_size] = 0;                                \
-  } while(0)
+void fetch_row(Terminal *term, int row, int end_col)
+{
+  int col = 0;
+  size_t line_len = 0;
+  char *ptr = term->textbuf;
+
+  while (col < end_col) {
+    VTermScreenCell cell;
+    fetch_cell(term, row, col, &cell);
+    *ptr = ' ';
+    int cell_len = 0;
+    for (int i = 0; cell.chars[i]; i++) {
+      cell_len += utf_char2bytes((int)cell.chars[i], (uint8_t *)ptr);
+    }
+    char c = *ptr;
+    ptr += cell_len;
+    if (c != ' ') {
+      // dont care about trailing whitespace
+      line_len = (size_t)(ptr - term->textbuf);
+    }
+    col += cell.width;
+  }
+
+  term->textbuf[line_len] = 0;
+}
+
+static void fetch_cell(Terminal *term, int row, int col,
+    VTermScreenCell *cell)
+{
+  if (row < 0) {
+    ScrollbackLine *sbrow = term->sb_buffer[-row - 1];
+    if ((size_t)col < sbrow->cols) {
+      *cell = sbrow->cells[col];
+    } else {
+      // fill the pointer with an empty cell
+      *cell = (VTermScreenCell) {
+        .chars = { 0 },
+        .width = 1,
+        .bg = default_vt_bg_rgb
+      };
+    }
+  } else {
+    vterm_screen_get_cell(term->vts, (VTermPos){.row = row, .col = col},
+        cell);
+  }
+}
 
 // queue a terminal instance for refresh
 static void invalidate_terminal(Terminal *term, int start_row, int end_row)
@@ -798,22 +819,6 @@ static void invalidate_terminal(Terminal *term, int start_row, int end_row)
     uv_timer_start(&refresh_timer, refresh_timer_cb, REFRESH_DELAY, 0);
     refresh_pending = true;
   }
-}
-
-// Convert a single cell to utf8 in *buf
-static size_t cell_to_utf8(const VTermScreenCell *cell, char *buf)
-{
-  if (cell->chars[0] != 0) {
-    size_t i = 0, l = 0;
-    do {
-      l += (size_t)utf_char2bytes((int)cell->chars[i], (uint8_t *)buf);
-      buf += l;
-    } while(cell->chars[++i] != 0);
-    return l;
-  }
-
-  *buf = ' ';
-  return 1;
 }
 
 // libuv timer callback. This will enqueue on_refresh to be processed as an
@@ -875,9 +880,8 @@ static void refresh_scrollback(Terminal *term)
       ml_delete(1, false);
       deleted_lines(1, 1);
     }
+    fetch_row(term, -term->sb_pending, width);
     int buf_index = (int)term->buf->b_ml.ml_line_count - height;
-    ScrollbackLine *sbrow = term->sb_buffer[term->sb_pending - 1];
-    CELLS_TO_TEXTBUF(term, (int)sbrow->cols, cell = sbrow->cells[i]);
     ml_append(buf_index, (uint8_t *)term->textbuf, 0, false);
     appended_lines(buf_index, 1);
     term->sb_pending--;
@@ -903,12 +907,8 @@ static void refresh_screen(Terminal *term)
 
   for (int r = term->invalid_start; r < term->invalid_end; r++) {
     VTermPos p = {.row = r};
-    CELLS_TO_TEXTBUF(term, width, {
-      p.col = i;
-      vterm_screen_get_cell(term->vts, p, &cell);
-    });
-
-    int linenr = p.row + (int)term->sb_current + 1;
+    fetch_row(term, p.row, width);
+    int linenr = row_to_linenr(term, p.row);
 
     if (linenr <= term->buf->b_ml.ml_line_count) {
       ml_replace(linenr, (uint8_t *)term->textbuf, true);
@@ -919,7 +919,7 @@ static void refresh_screen(Terminal *term)
     }
   }
 
-  int change_start = term->invalid_start + (int)term->sb_current + 1;
+  int change_start = row_to_linenr(term, term->invalid_start);
   int change_end = change_start + changed;
   changed_lines(change_start, 0, change_end, added);
   term->invalid_start = INT_MAX;
@@ -977,9 +977,14 @@ static void adjust_topline(Terminal *term)
   }
 }
 
-static int cursor_line(Terminal *term)
+static int row_to_linenr(Terminal *term, int row)
 {
-  return term->cursor.row + (int)term->sb_current + 1;
+  return row + (int)term->sb_current + 1;
+}
+
+static int linenr_to_row(Terminal *term, int linenr)
+{
+  return linenr - (int)term->sb_current - 1;
 }
 
 // }}}
