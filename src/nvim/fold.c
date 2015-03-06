@@ -768,6 +768,9 @@ void clearFolding(win_T *win)
 void foldUpdate(win_T *wp, linenr_T top, linenr_T bot)
 {
   fold_T      *fp;
+  if (wp->w_buffer->terminal) {
+    return;
+  }
 
   /* Mark all folds from top to bot as maybe-small. */
   (void)foldFind(&curwin->w_folds, top, &fp);
