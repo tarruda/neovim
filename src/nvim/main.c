@@ -273,7 +273,7 @@ int main(int argc, char **argv)
   // open terminals when opening files that start with term://
   do_cmdline_cmd((uint8_t *)
       "autocmd BufReadCmd term://* "
-      ":call openterminal( "
+      ":call termopen( "
       // Capture the command the command string 
       "matchstr(expand(\"<amatch>\"), "
       "'\\c\\mterm://\\%(.\\{-}//\\%(\\d\\+:\\)\\?\\)\\?\\zs.*'), "

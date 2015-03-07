@@ -494,7 +494,7 @@ static int term_settermprop(VTermProp prop, VTermValue *val, void *data)
 {
   Terminal *term = data;
 
-  switch(prop) {
+  switch (prop) {
     case VTERM_PROP_ALTSCREEN:
       break;
 
@@ -596,7 +596,7 @@ static int term_sb_pop(int cols, VTermScreenCell *cells, void *data)
 
   // copy to vterm state
   memcpy(cells, sbrow->cells, sizeof(cells[0]) * cols_to_copy);
-  for(size_t col = cols_to_copy; col < c; col++) {
+  for (size_t col = cols_to_copy; col < c; col++) {
     cells[col].chars[0] = 0;
     cells[col].width = 1;
   }
@@ -620,7 +620,7 @@ static VTermKey convert_key(int key, VTermModifier *statep)
 {
   convert_modifiers(statep);
 
-  switch(key) {
+  switch (key) {
     case K_BS:        return VTERM_KEY_BACKSPACE;
     case TAB:         return VTERM_KEY_TAB;
     case Ctrl_M:      return VTERM_KEY_ENTER;
@@ -727,7 +727,7 @@ static bool send_mouse_event(Terminal *term, int c)
       scroll_redraw(direction, 3L);
     }
 
-    curwin->w_redr_status = TRUE;
+    curwin->w_redr_status = true;
     curwin = term->curwin;
     curbuf = curwin->w_buffer;
     redraw_all_later(NOT_VALID);

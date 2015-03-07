@@ -946,7 +946,8 @@ do_buffer (
           return FAIL;
       } else {
         if (buf->terminal) {
-          EMSGN(_("E89: %s will be killed(add ! to override)"), buf->b_fname);
+          EMSGN(_("E89: %s will be killed(add ! to override)"),
+              (char *)buf->b_fname);
         } else {
           EMSGN(_("E89: No write since last change for buffer %" PRId64
                   " (add ! to override)"),

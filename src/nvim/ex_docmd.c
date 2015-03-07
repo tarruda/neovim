@@ -8875,7 +8875,7 @@ static void ex_folddo(exarg_T *eap)
 static void ex_terminal(exarg_T *eap)
 {
   char cmd[512];
-  snprintf(cmd, sizeof(cmd), ":enew%s | call openterminal('%s') | startinsert",
+  snprintf(cmd, sizeof(cmd), ":enew%s | call termopen('%s') | startinsert",
       eap->forceit==TRUE ? "!" : "",
       strcmp((char *)eap->arg, "") ? (char *)eap->arg : (char *)p_sh);
   do_cmdline_cmd((uint8_t *)cmd);

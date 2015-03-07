@@ -6530,7 +6530,6 @@ static struct fst {
   {"mode",            0, 1, f_mode},
   {"nextnonblank",    1, 1, f_nextnonblank},
   {"nr2char",         1, 2, f_nr2char},
-  {"openterminal",    1, 2, f_openterminal},
   {"or",              2, 2, f_or},
   {"pathshorten",     1, 1, f_pathshorten},
   {"pow",             2, 2, f_pow},
@@ -6613,6 +6612,7 @@ static struct fst {
   {"tan",             1, 1, f_tan},
   {"tanh",            1, 1, f_tanh},
   {"tempname",        0, 0, f_tempname},
+  {"termopen",        1, 2, f_termopen},
   {"test",            1, 1, f_test},
   {"tolower",         1, 1, f_tolower},
   {"toupper",         1, 1, f_toupper},
@@ -11658,58 +11658,6 @@ static void f_nr2char(typval_T *argvars, typval_T *rettv)
   rettv->vval.v_string = vim_strsave(buf);
 }
 
-// "openterminal(cmd[, cwd])" function
-static void f_openterminal(typval_T *argvars, typval_T *rettv)
-{
-  if (check_restricted() || check_secure()) {
-    return;
-  }
-
-  if (curbuf->b_changed) {
-    EMSG(_("Can only call this function in a unmodified buffer"));
-    return;
-  }
-
-  if (argvars[0].v_type != VAR_STRING
-      || (argvars[1].v_type != VAR_STRING
-        && argvars[1].v_type != VAR_UNKNOWN)) {
-    // Wrong argument types
-    EMSG(_(e_invarg));
-    return;
-  }
-
-  char buf[1024];
-  snprintf(buf, sizeof(buf), "term://%s", (char *)argvars[0].vval.v_string);
-  char **argv = shell_build_argv((char *)argvars[0].vval.v_string, NULL);
-  JobOptions opts = common_job_options(argv, buf);
-  opts.pty = true;
-  opts.width = curwin->w_width;
-  opts.height = curwin->w_height;
-  opts.term_name = xstrdup("xterm-256color");
-  Job *job = common_job_start(opts, rettv);
-  if (!job) {
-    return;
-  }
-  TerminalJobData *data = opts.data;
-  TerminalOptions topts = TERMINAL_OPTIONS_INIT;
-  topts.data = data;
-  topts.width = curwin->w_width;
-  topts.height = curwin->w_height;
-  topts.write_cb = term_write;
-  topts.resize_cb = term_resize;
-  topts.close_cb = term_close;
-  Terminal *term = terminal_open(topts);
-  data->term = term;
-  data->refcount++;
-
-  // format the title with the pid to conform with the term:// URI 
-  snprintf(buf, sizeof(buf), "term://%s//%d:%s",
-      argvars[1].v_type != VAR_UNKNOWN ? (char *)argvars[1].vval.v_string : ".",
-      job_pid(job),
-      (char *)argvars[0].vval.v_string);
-  (void)setfname(curbuf, (uint8_t *)buf, NULL, true);
-}
-
 /*
  * "or(expr, expr)" function
  */
@@ -14929,6 +14877,59 @@ static void f_tempname(typval_T *argvars, typval_T *rettv)
 {
   rettv->v_type = VAR_STRING;
   rettv->vval.v_string = vim_tempname();
+}
+
+// "termopen(cmd[, cwd])" function
+static void f_termopen(typval_T *argvars, typval_T *rettv)
+{
+  if (check_restricted() || check_secure()) {
+    return;
+  }
+
+  if (curbuf->b_changed) {
+    EMSG(_("Can only call this function in a unmodified buffer"));
+    return;
+  }
+
+  if (argvars[0].v_type != VAR_STRING
+      || (argvars[1].v_type != VAR_STRING
+        && argvars[1].v_type != VAR_UNKNOWN)) {
+    // Wrong argument types
+    EMSG(_(e_invarg));
+    return;
+  }
+
+  char buf[1024];
+  snprintf(buf, sizeof(buf), "term://%s",
+      (char *)argvars[0].vval.v_string);
+  char **argv = shell_build_argv((char *)argvars[0].vval.v_string, NULL);
+  JobOptions opts = common_job_options(argv, buf);
+  opts.pty = true;
+  opts.width = curwin->w_width;
+  opts.height = curwin->w_height;
+  opts.term_name = xstrdup("xterm-256color");
+  Job *job = common_job_start(opts, rettv);
+  if (!job) {
+    return;
+  }
+  TerminalJobData *data = opts.data;
+  TerminalOptions topts = TERMINAL_OPTIONS_INIT;
+  topts.data = data;
+  topts.width = curwin->w_width;
+  topts.height = curwin->w_height;
+  topts.write_cb = term_write;
+  topts.resize_cb = term_resize;
+  topts.close_cb = term_close;
+  Terminal *term = terminal_open(topts);
+  data->term = term;
+  data->refcount++;
+
+  // format the title with the pid to conform with the term:// URI 
+  snprintf(buf, sizeof(buf), "term://%s//%d:%s",
+      argvars[1].v_type != VAR_UNKNOWN ? (char *)argvars[1].vval.v_string : ".",
+      job_pid(job),
+      (char *)argvars[0].vval.v_string);
+  (void)setfname(curbuf, (uint8_t *)buf, NULL, true);
 }
 
 /*
