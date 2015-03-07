@@ -345,6 +345,7 @@ void terminal_enter(Terminal *term, bool process_deferred)
   }
 
 end:
+  restart_edit = 0;
   term->focused = false;
   State = save_state;
   RedrawingDisabled = save_rd;
