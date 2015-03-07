@@ -11,7 +11,6 @@ typedef void (*terminal_resize_cb)(uint16_t width, uint16_t height, void *data);
 typedef void (*terminal_close_cb)(void *data);
 
 typedef struct {
-  const char *title;
   void *data;
   uint16_t width, height;
   terminal_write_cb write_cb;
@@ -20,7 +19,6 @@ typedef struct {
 } TerminalOptions;
 
 #define TERMINAL_OPTIONS_INIT ((TerminalOptions) {           \
-    .title = NULL,                                           \
     .data = NULL,                                            \
     .width = 80,                                             \
     .height = 24,                                            \

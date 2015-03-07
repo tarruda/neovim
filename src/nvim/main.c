@@ -270,6 +270,16 @@ int main(int argc, char **argv)
   /* Set the break level after the terminal is initialized. */
   debug_break_level = params.use_debug_break_level;
 
+  // open terminals when opening files that start with term://
+  do_cmdline_cmd((uint8_t *)
+      "autocmd BufReadCmd term://* "
+      ":call openterminal( "
+      // Capture the command the command string 
+      "matchstr(expand(\"<amatch>\"), "
+      "'\\c\\mterm://\\%(.\\{-}//\\%(\\d\\+:\\)\\?\\)\\?\\zs.*'), "
+      "get(matchlist(expand(\"<amatch>\"), "
+      "'\\c\\mterm://\\(.\\{-}\\)//'), 1, ''))");
+
   /* Execute --cmd arguments. */
   exe_pre_commands(&params);
 

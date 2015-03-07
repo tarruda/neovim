@@ -6017,7 +6017,6 @@ do_exedit (
     }
   }
 
-
   if ((eap->cmdidx == CMD_new
        || eap->cmdidx == CMD_tabnew
        || eap->cmdidx == CMD_tabedit
@@ -6043,42 +6042,19 @@ do_exedit (
     else if (eap->cmdidx == CMD_enew)
       readonlymode = FALSE;         /* 'readonly' doesn't make sense in an
                                        empty buffer */
-
-    uint8_t *ffname = (eap->cmdidx == CMD_enew ? NULL : eap->arg);
-    exarg_T *eapp = eap;
-    /* ":edit" goes to first line if Vi compatible */
-    int newlnum = (*eap->arg == NUL && eap->do_ecmd_lnum == 0
-        && vim_strchr(p_cpo, CPO_GOTO1) != NULL)
-      ? ECMD_ONE : eap->do_ecmd_lnum;
-    int flags = (P_HID(curbuf) ? ECMD_HIDE : 0)
-      + (eap->forceit ? ECMD_FORCEIT : 0)
-      // After a split we can use an existing buffer.
-      + (old_curwin != NULL ? ECMD_OLDBUF : 0)
-      + (eap->cmdidx == CMD_badd ? ECMD_ADDBUF : 0);
-    win_T *oldwin = old_curwin == NULL ? curwin : NULL;
-    char term_buffer[1024];
-    char *tcmd = term_buffer, *tcwd = term_buffer + 512;
-    char *fname = (char *)eap->arg;
-    {
-      int adv = 0;
-      if (sscanf(fname, "term://%s//%s%n", tcmd, tcwd, &adv) == EOF || !adv) {
-        tcwd = NULL;
-        if (sscanf(fname, "term://%s%n", tcmd, &adv) == EOF || !adv) {
-          tcmd = NULL;
-        }
-      }
-
-      if (tcmd) {
-        ffname = NULL;
-        eapp = NULL;
-        newlnum = ECMD_ONE;
-        flags = ECMD_HIDE;
-        readonlymode = false;
-      }
-    }
-
     setpcmark();
-    if (do_ecmd(0, ffname, NULL, eapp, newlnum, flags, oldwin) == FAIL) {
+    if (do_ecmd(0, (eap->cmdidx == CMD_enew ? NULL : eap->arg),
+            NULL, eap,
+            /* ":edit" goes to first line if Vi compatible */
+            (*eap->arg == NUL && eap->do_ecmd_lnum == 0
+             && vim_strchr(p_cpo, CPO_GOTO1) != NULL)
+            ? ECMD_ONE : eap->do_ecmd_lnum,
+            (P_HID(curbuf) ? ECMD_HIDE : 0)
+            + (eap->forceit ? ECMD_FORCEIT : 0)
+            // After a split we can use an existing buffer.
+            + (old_curwin != NULL ? ECMD_OLDBUF : 0)
+            + (eap->cmdidx == CMD_badd ? ECMD_ADDBUF : 0 )
+            , old_curwin == NULL ? curwin : NULL) == FAIL) {
       /* Editing the file failed.  If the window was split, close it. */
       if (old_curwin != NULL) {
         need_hide = (curbufIsChanged() && curbuf->b_nwindows <= 1);
@@ -6104,11 +6080,6 @@ do_exedit (
       curbuf->b_p_ro = TRUE;
     }
     readonlymode = n;
-
-    if (tcmd) {
-      curbuf->terminal = terminal_spawn(fname, tcmd, tcwd);
-    }
-
   } else {
     if (eap->do_ecmd_cmd != NULL)
       do_cmdline_cmd(eap->do_ecmd_cmd);
@@ -8321,7 +8292,7 @@ put_view (
       if (fputs("edit ", fd) < 0
           || ses_fname(fd, wp->w_buffer, flagp) == FAIL)
         return FAIL;
-    } else if (!wp->w_buffer->terminal) {
+    } else {
       /* No file in this buffer, just make it empty. */
       if (put_line(fd, "enew") == FAIL)
         return FAIL;
@@ -8496,9 +8467,7 @@ static int ses_fname(FILE *fd, buf_T *buf, unsigned *flagp)
    * Don't do this for ":mkview", we don't know the current directory.
    * Don't do this after ":lcd", we don't keep track of what the current
    * directory is. */
-  if (buf->terminal) {
-    name = (uint8_t *)buf->session_fname;
-  } else if (buf->b_sfname != NULL
+  if (buf->b_sfname != NULL
       && flagp == &ssop_flags
       && (ssop_flags & (SSOP_CURDIR | SSOP_SESDIR))
       && !p_acd
@@ -8906,117 +8875,8 @@ static void ex_folddo(exarg_T *eap)
 static void ex_terminal(exarg_T *eap)
 {
   char cmd[512];
-  snprintf(cmd, sizeof(cmd), ":e%s term://%s", eap->forceit==TRUE ? "!" : "",
+  snprintf(cmd, sizeof(cmd), ":enew%s | call openterminal('%s') | startinsert",
+      eap->forceit==TRUE ? "!" : "",
       strcmp((char *)eap->arg, "") ? (char *)eap->arg : (char *)p_sh);
-  did_emsg = false;
-  if (do_cmdline_cmd((uint8_t *)cmd) == OK && !did_emsg) {
-    ins_char_typebuf('i');
-  }
-}
-
-typedef struct {
-  Job *job;
-  Terminal *term;
-  bool exited;
-  int refcount;
-} TerminalJobData;
-
-Terminal *terminal_spawn(char *fname, char *cmd, char *cwd)
-{
-  // TODO(tarruda): use the `cwd` argument to start the process in a specific
-  // directory
-  TerminalJobData *data = xmalloc(sizeof(TerminalJobData));
-  JobOptions opts = JOB_OPTIONS_INIT;
-  opts.data = data;
-  opts.argv = shell_build_argv(!strcmp(cmd, "") ? NULL : cmd, NULL);
-  opts.stdout_cb = on_job_output;
-  opts.stderr_cb = on_job_output;
-  opts.exit_cb = on_job_exit;
-  opts.pty = true;
-  opts.width = curwin->w_width;
-  opts.height = curwin->w_height;
-  opts.term_name = xstrdup("xterm-256color");
-  int status;
-  Job *job = job_start(opts, &status);
-
-  if (status <= 0) {
-    if (status == 0) {
-      EMSG(e_jobtblfull);
-    } else if (status < 0) {
-      EMSG(e_jobexe);
-    }
-    free(data);
-    return NULL;
-  }
-
-  char buf[1024];
-  snprintf(buf, sizeof(buf), "%s (%d)", fname, job_pid(job));
-  TerminalOptions topts = TERMINAL_OPTIONS_INIT;
-  topts.title = xstrdup(buf);
-  topts.data = data;
-  topts.width = curwin->w_width;
-  topts.height = curwin->w_height;
-  topts.write_cb = term_write;
-  topts.resize_cb = term_resize;
-  topts.close_cb = term_close;
-  Terminal *term = terminal_open(topts);
-
-  data->refcount = 2;
-  data->term = term;
-  data->job = job;
-  data->exited = false;
-  (void)setfname(curbuf, (uint8_t *)topts.title, NULL, true);
-  curbuf->session_fname = xstrdup(fname);
-  return term;
-}
-
-static void term_write(char *buf, size_t size, void *data)
-{
-  Job *job = ((TerminalJobData *)data)->job;
-  WBuffer *wbuf = wstream_new_buffer(xmemdup(buf, size), size, 1, free);
-  job_write(job, wbuf);
-}
-
-static void term_resize(uint16_t width, uint16_t height, void *data)
-{
-  job_resize(((TerminalJobData *)data)->job, width, height);
-}
-
-static void on_job_output(RStream *rstream, void *data, bool eof)
-{
-  if (!eof) {
-    char *ptr = rstream_read_ptr(rstream);
-    size_t len = rstream_pending(rstream);
-    terminal_receive(((TerminalJobData *)job_data(data))->term, ptr, len);
-    rbuffer_consumed(rstream_buffer(rstream), len);
-  }
-}
-
-static void on_job_exit(Job *job, void *data)
-{
-  TerminalJobData *d = data;
-  if (!d->exited) {
-    d->exited = true;
-    terminal_close(d->term, _("\r\n[Program exited, press any key to close]"));
-  }
-  term_job_data_decref(d);
-}
-
-static void term_close(void *data)
-{
-  TerminalJobData *d = data;
-  if (!d->exited) {
-    d->exited = true;
-    job_close_streams(d->job);
-    job_stop(d->job);
-  }
-  terminal_destroy(d->term);
-  term_job_data_decref(d);
-}
-
-static void term_job_data_decref(void *d)
-{
-  if (!(--((TerminalJobData *)d)->refcount)) {
-    free(d);
-  }
+  do_cmdline_cmd((uint8_t *)cmd);
 }

@@ -65,8 +65,9 @@
 #include "nvim/ex_docmd.h"
 #include "nvim/ex_cmds.h"
 #include "nvim/window.h"
-#include "nvim/os/event.h"
 #include "nvim/fileio.h"
+#include "nvim/os/event.h"
+#include "nvim/api/private/helpers.h"
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "terminal.c.generated.h"
@@ -127,8 +128,6 @@ struct terminal {
   } cursor;
   // which mouse button is pressed
   int pressed_button;
-  char *title, *old_title;
-  size_t title_len;
   // pending width/height
   bool pending_resize;
 };
@@ -189,7 +188,6 @@ Terminal *terminal_open(TerminalOptions opts)
   // Create a new terminal instance and configure it
   Terminal *rv = xcalloc(1, sizeof(Terminal));
   rv->opts = opts;
-  rv->title_len = strlen(opts.title) + 64;
   rv->sb_size = SCROLLBACK_DEFAULT_SIZE;
   rv->sb_buffer = xmalloc(sizeof(ScrollbackLine *) * rv->sb_size);
   rv->cursor.visible = true;
@@ -370,7 +368,6 @@ void terminal_destroy(Terminal *term)
   for (size_t i = 0 ; i < term->sb_current; i++) {
     free(term->sb_buffer[i]);
   }
-  free(term->title);
   free(term->sb_buffer);
   vterm_free(term->vt);
   free(term);
@@ -505,12 +502,10 @@ static int term_settermprop(VTermProp prop, VTermValue *val, void *data)
       break;
 
     case VTERM_PROP_TITLE: {
-      term->old_title = NULL;
-      free(term->title);
-      term->title = xmallocz(term->title_len);
-      snprintf(term->title, term->title_len, "%s [%s]", term->opts.title,
-          val->string);
-      invalidate_terminal(term, -1, -1);
+      Error err;
+      dict_set_value(term->buf->b_vars,
+          cstr_as_string("terminal_title"),
+          STRING_OBJ(cstr_as_string(val->string)), &err);
       break;
     }
 
@@ -838,7 +833,6 @@ static void on_refresh(Event event)
       refresh_size(term);
       refresh_scrollback(term);
       refresh_screen(term);
-      refresh_title(term);
     });
     adjust_topline(term);
   });
@@ -920,15 +914,6 @@ static void refresh_screen(Terminal *term)
   changed_lines(change_start, 0, change_end, added);
   term->invalid_start = INT_MAX;
   term->invalid_end = -1;
-}
-
-// Refresh the title of a invalidated terminal
-static void refresh_title(Terminal *term)
-{
-  if (term->title != term->old_title) {
-    (void)setfname(term->buf, (char_u *)term->title, NULL, true);
-    term->old_title = term->title;
-  }
 }
 
 static void redraw(void)
