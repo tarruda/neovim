@@ -6061,7 +6061,8 @@ do_exedit (
     char *fname = (char *)eap->arg;
     {
       int adv = 0;
-      if (sscanf(fname, "term://%s//%s%n", tcmd, tcwd, &adv) == EOF || !adv) {
+      if (sscanf(fname, "term://%s//%s%n", tcwd, tcmd, &adv) == EOF
+          || !adv) {
         tcwd = NULL;
         if (sscanf(fname, "term://%s%n", tcmd, &adv) == EOF || !adv) {
           tcmd = NULL;
