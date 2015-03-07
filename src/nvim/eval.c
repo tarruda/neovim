@@ -11687,6 +11687,9 @@ static void f_openterminal(typval_T *argvars, typval_T *rettv)
   opts.height = curwin->w_height;
   opts.term_name = xstrdup("xterm-256color");
   Job *job = common_job_start(opts, rettv);
+  if (!job) {
+    return;
+  }
   TerminalJobData *data = opts.data;
   TerminalOptions topts = TERMINAL_OPTIONS_INIT;
   topts.data = data;
@@ -11704,7 +11707,7 @@ static void f_openterminal(typval_T *argvars, typval_T *rettv)
       argvars[1].v_type != VAR_UNKNOWN ? (char *)argvars[1].vval.v_string : ".",
       job_pid(job),
       (char *)argvars[0].vval.v_string);
-  (void)setfname(curbuf, (uint8_t *)xstrdup(buf), NULL, true);
+  (void)setfname(curbuf, (uint8_t *)buf, NULL, true);
 }
 
 /*
@@ -19908,11 +19911,12 @@ static void on_job_exit(Job *job, void *d)
 {
   TerminalJobData *data = d;
 
-  if (has_autocmd(EVENT_JOBACTIVITY, (uint8_t *)data->autocmd_file, NULL)) {
+  if (has_autocmd(EVENT_JOBACTIVITY,
+        (uint8_t *)data->autocmd_file, NULL)) {
     push_job_event(job, NULL, "exit");
   }
 
-  if (!data->exited) {
+  if (data->term && !data->exited) {
     data->exited = true;
     terminal_close(data->term,
         _("\r\n[Program exited, press any key to close]"));
@@ -19937,7 +19941,6 @@ static void term_close(void *d)
   TerminalJobData *data = d;
   if (!data->exited) {
     data->exited = true;
-    job_close_streams(data->job);
     job_stop(data->job);
   }
   terminal_destroy(data->term);
@@ -19946,7 +19949,7 @@ static void term_close(void *d)
 
 static void term_job_data_decref(TerminalJobData *data)
 {
-  if (!data->refcount) {
+  if (!(--data->refcount)) {
     free(data);
   }
 }
