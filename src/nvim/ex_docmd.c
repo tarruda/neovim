@@ -7921,7 +7921,10 @@ makeopens (
     if (!(only_save_windows && buf->b_nwindows == 0)
         && !(buf->b_help && !(ssop_flags & SSOP_HELP))
         && buf->b_fname != NULL
-        && buf->b_p_bl) {
+        && buf->b_p_bl
+        // Only call badd for terminal buffers if they are not visible
+        // because `edit` will take care of spawning them later
+        && (!buf->terminal || !buf->b_nwindows)) {
       if (fprintf(fd, "badd +%" PRId64 " ",
                   buf->b_wininfo == NULL ?
                     (int64_t)1L :
@@ -8911,7 +8914,7 @@ static void ex_terminal(exarg_T *eap)
       strcmp((char *)eap->arg, "") ? (char *)eap->arg : (char *)p_sh);
   did_emsg = false;
   if (do_cmdline_cmd((uint8_t *)cmd) == OK && !did_emsg) {
-    ins_char_typebuf('i');
+    do_cmdline_cmd((uint8_t *)"startinsert");
   }
 }
 
