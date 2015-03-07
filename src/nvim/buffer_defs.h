@@ -754,6 +754,7 @@ struct file_buffer {
   signlist_T *b_signlist;       /* list of signs to draw */
 
   Terminal *terminal;           // Terminal instance associated with the buffer
+  char *session_fname;          // name used for saving the terminal in a session
 };
 
 /*

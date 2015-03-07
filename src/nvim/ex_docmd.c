@@ -8101,7 +8101,9 @@ makeopens (
   /*
    * Wipe out an empty unnamed buffer we started in.
    */
-  if (put_line(fd, "if exists('s:wipebuf')") == FAIL)
+  if (put_line(fd, "if exists('s:wipebuf') "
+                      "&& getbufvar(s:wipebuf, '&buftype') isnot# 'terminal'")
+      == FAIL)
     return FAIL;
   if (put_line(fd, "  silent exe 'bwipe ' . s:wipebuf") == FAIL)
     return FAIL;
@@ -8310,7 +8312,7 @@ put_view (
      * Load the file.
      */
     if (wp->w_buffer->b_ffname != NULL
-        && !bt_nofile(wp->w_buffer)
+        && (!bt_nofile(wp->w_buffer) || wp->w_buffer->terminal)
         ) {
       /*
        * Editing a file in this buffer: use ":edit file".
@@ -8319,7 +8321,7 @@ put_view (
       if (fputs("edit ", fd) < 0
           || ses_fname(fd, wp->w_buffer, flagp) == FAIL)
         return FAIL;
-    } else {
+    } else if (!wp->w_buffer->terminal) {
       /* No file in this buffer, just make it empty. */
       if (put_line(fd, "enew") == FAIL)
         return FAIL;
@@ -8494,7 +8496,9 @@ static int ses_fname(FILE *fd, buf_T *buf, unsigned *flagp)
    * Don't do this for ":mkview", we don't know the current directory.
    * Don't do this after ":lcd", we don't keep track of what the current
    * directory is. */
-  if (buf->b_sfname != NULL
+  if (buf->terminal) {
+    name = (uint8_t *)buf->session_fname;
+  } else if (buf->b_sfname != NULL
       && flagp == &ssop_flags
       && (ssop_flags & (SSOP_CURDIR | SSOP_SESDIR))
       && !p_acd
@@ -8962,6 +8966,7 @@ Terminal *terminal_spawn(char *fname, char *cmd, char *cwd)
   data->job = job;
   data->exited = false;
   (void)setfname(curbuf, (uint8_t *)topts.title, NULL, true);
+  curbuf->session_fname = xstrdup(fname);
   return term;
 }
 
