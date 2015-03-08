@@ -897,10 +897,9 @@ static void refresh_screen(Terminal *term)
   int width;
   vterm_get_size(term->vt, &height, &width);
 
-  for (int r = term->invalid_start; r < term->invalid_end; r++) {
-    VTermPos p = {.row = r};
-    fetch_row(term, p.row, width);
-    int linenr = row_to_linenr(term, p.row);
+  for (int r = term->invalid_start, linenr = row_to_linenr(term, r);
+       r < term->invalid_end; r++, linenr++) {
+    fetch_row(term, r, width);
 
     if (linenr <= term->buf->b_ml.ml_line_count) {
       ml_replace(linenr, (uint8_t *)term->textbuf, true);
