@@ -19843,14 +19843,14 @@ static inline Job *common_job_start(JobOptions opts, typval_T *rettv)
 
 // JobActivity autocommands will execute vimscript code, so it must be executed
 // on Nvim main loop
-static inline void push_job_event(Job *job, RStream *rstream, char *type)
+static inline void push_job_event(Job *job, char *type, char *data,
+    size_t count)
 {
   JobEvent *event_data = kmp_alloc(JobEventPool, job_event_pool);
   event_data->received = NULL;
-  if (rstream) {
+  if (data) {
     event_data->received = list_alloc();
-    char *ptr = rstream_read_ptr(rstream);
-    size_t count = rstream_pending(rstream);
+    char *ptr = data;
     size_t remaining = count;
     size_t off = 0;
 
@@ -19871,11 +19871,10 @@ static inline void push_job_event(Job *job, RStream *rstream, char *type)
       off++;
     }
     list_append_string(event_data->received, (uint8_t *)ptr, off);
-    rbuffer_consumed(rstream_buffer(rstream), count);
   }
-  TerminalJobData *data = job_data(job);
+  TerminalJobData *d = job_data(job);
   event_data->id = job_id(job);
-  event_data->name = data->autocmd_file;
+  event_data->name = d->autocmd_file;
   event_data->type = type;
   event_push((Event) {
     .handler = on_job_event,
@@ -19900,15 +19899,20 @@ static void on_job_output(RStream *rstream, Job *job, bool eof, char *type)
   }
 
   TerminalJobData *data = job_data(job);
-  if (has_autocmd(EVENT_JOBACTIVITY, (uint8_t *)data->autocmd_file, NULL)) {
-    push_job_event(job, rstream, type);
-  }
+  char *ptr = rstream_read_ptr(rstream);
+  size_t len = rstream_pending(rstream);
+
+  // The order here matters, the terminal must receive the data first because
+  // push_job_event will modify the read buffer(convert NULs into NLs)
   if (data->term) {
-    char *ptr = rstream_read_ptr(rstream);
-    size_t len = rstream_pending(rstream);
     terminal_receive(data->term, ptr, len);
-    rbuffer_consumed(rstream_buffer(rstream), len);
   }
+
+  if (has_autocmd(EVENT_JOBACTIVITY, (uint8_t *)data->autocmd_file, NULL)) {
+    push_job_event(job, type, ptr, len);
+  }
+
+  rbuffer_consumed(rstream_buffer(rstream), len);
 }
 
 static void on_job_exit(Job *job, void *d)
@@ -19917,7 +19921,7 @@ static void on_job_exit(Job *job, void *d)
 
   if (has_autocmd(EVENT_JOBACTIVITY,
         (uint8_t *)data->autocmd_file, NULL)) {
-    push_job_event(job, NULL, "exit");
+    push_job_event(job, "exit", NULL, 0);
   } else {
     free(data->autocmd_file);
   }
