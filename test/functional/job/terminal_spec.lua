@@ -27,7 +27,7 @@ describe('terminal', function()
 
   before_each(function()
     clear()
-    screen = Screen.new(35, 7)
+    screen = Screen.new(36, 7)
     screen:set_default_attr_ids({
       [1] = {bold = true},
       [2] = {background = 16574799}  -- unfocused cursor color
@@ -37,13 +37,13 @@ describe('terminal', function()
     -- wait for "tty ready" to be printed before each test or the terminal may
     -- still be in canonical mode(will echo characters for example)
     screen:expect([[
-      tty ready                          |
-      ^                                  |
-                                         |
-                                         |
-                                         |
-                                         |
-      {1:-- TERMINAL --}                     |
+      tty ready                           |
+      ^                                   |
+                                          |
+                                          |
+                                          |
+                                          |
+      {1:-- TERMINAL --}                      |
     ]])
   end)
 
@@ -51,105 +51,30 @@ describe('terminal', function()
     screen:detach()
   end)
 
-  describe('scrollback', function()
-    before_each(function()
-      -- terminal buffers always have a minimum of lines equal to the window
-      -- height
-      eq(6, curbuf('line_count'))
-      feed_data({'line1', 'line2', 'line3', 'line4', ''})
-      screen:expect([[
-        tty ready                          |
-        line1                              |
-        line2                              |
-        line3                              |
-        line4                              |
-        ^                                  |
-        {1:-- TERMINAL --}                     |
-      ]])
-      eq(6, curbuf('line_count'))
-    end)
-
-    describe('when a linefeed is output at the end of the screen', function()
-      it('is increased', function()
-        feed_data({'line5', ''})
-        screen:expect([[
-          line1                              |
-          line2                              |
-          line3                              |
-          line4                              |
-          line5                              |
-          ^                                  |
-          {1:-- TERMINAL --}                     |
-        ]])
-        eq(7, curbuf('line_count'))
-        feed_data({'line6', 'line7', 'line8'})
-        screen:expect([[
-          line3                              |
-          line4                              |
-          line5                              |
-          line6                              |
-          line7                              |
-          line8^                             |
-          {1:-- TERMINAL --}                     |
-        ]])
-        feed('<c-\\><c-n>6k')
-        screen:expect([[
-          ^ine2                              |
-          line3                              |
-          line4                              |
-          line5                              |
-          line6                              |
-          line7                              |
-                                             |
-        ]])
-        feed('gg')
-        screen:expect([[
-          ^ty ready                          |
-          line1                              |
-          line2                              |
-          line3                              |
-          line4                              |
-          line5                              |
-                                             |
-        ]])
-        feed('G')
-        screen:expect([[
-          line3                              |
-          line4                              |
-          line5                              |
-          line6                              |
-          line7                              |
-          ^ine8{2: }                             |
-                                             |
-        ]])
-      end)
-    end)
-  end)
-
   describe('cursor', function()
     it('is followed by the screen cursor', function()
       feed('hello')
       screen:expect([[
-        tty ready                          |
-        hello^                             |
-                                           |
-                                           |
-                                           |
-                                           |
-        {1:-- TERMINAL --}                     |
+        tty ready                           |
+        hello^                              |
+                                            |
+                                            |
+                                            |
+                                            |
+        {1:-- TERMINAL --}                      |
       ]])
     end)
 
     it('is highlighted when not focused', function()
       feed('<c-\\><c-n>')
       screen:expect([[
-        tty ready                          |
-        {2: }                                  |
-                                           |
-                                           |
-                                           |
-        ^                                  |
-                                           |
+        tty ready                           |
+        {2: }                                   |
+                                            |
+                                            |
+                                            |
+        ^                                   |
+                                            |
       ]])
     end)
 
@@ -157,48 +82,162 @@ describe('terminal', function()
       it('is not highlighted and is detached from screen cursor', function()
         hide_cursor()
         screen:expect([[
-          tty ready                          |
-                                             |
-                                             |
-                                             |
-                                             |
-          ^                                  |
-          {1:-- TERMINAL --}                     |
+          tty ready                           |
+                                              |
+                                              |
+                                              |
+                                              |
+          ^                                   |
+          {1:-- TERMINAL --}                      |
         ]])
         show_cursor()
         screen:expect([[
-          tty ready                          |
-          ^                                  |
-                                             |
-                                             |
-                                             |
-                                             |
-          {1:-- TERMINAL --}                     |
+          tty ready                           |
+          ^                                   |
+                                              |
+                                              |
+                                              |
+                                              |
+          {1:-- TERMINAL --}                      |
         ]])
         -- same for when the terminal is unfocused
         feed('<c-\\><c-n>')
         hide_cursor()
         screen:expect([[
-          tty ready                          |
-                                             |
-                                             |
-                                             |
-                                             |
-          ^                                  |
-                                             |
+          tty ready                           |
+                                              |
+                                              |
+                                              |
+                                              |
+          ^                                   |
+                                              |
         ]])
         show_cursor()
         screen:expect([[
-          tty ready                          |
-          {2: }                                  |
-                                             |
-                                             |
-                                             |
-          ^                                  |
-                                             |
+          tty ready                           |
+          {2: }                                   |
+                                              |
+                                              |
+                                              |
+          ^                                   |
+                                              |
         ]])
       end)
     end)
+  end)
 
+  describe('with the cursor at the bottom of the window', function()
+    before_each(function()
+      -- terminal buffers always have a minimum of lines equal to the window
+      -- height
+      eq(6, curbuf('line_count'))
+      feed_data({'line1', 'line2', 'line3', 'line4', ''})
+      screen:expect([[
+        tty ready                           |
+        line1                               |
+        line2                               |
+        line3                               |
+        line4                               |
+        ^                                   |
+        {1:-- TERMINAL --}                      |
+      ]])
+      eq(6, curbuf('line_count'))
+    end)
+
+    it('will hide top lines when linefeeds are printed', function()
+      feed_data({'line5', ''})
+      screen:expect([[
+        line1                               |
+        line2                               |
+        line3                               |
+        line4                               |
+        line5                               |
+        ^                                   |
+        {1:-- TERMINAL --}                      |
+      ]])
+      eq(7, curbuf('line_count'))
+      feed_data({'line6', 'line7', 'line8'})
+      screen:expect([[
+        line3                               |
+        line4                               |
+        line5                               |
+        line6                               |
+        line7                               |
+        line8^                              |
+        {1:-- TERMINAL --}                      |
+      ]])
+      feed('<c-\\><c-n>6k')
+      screen:expect([[
+        ^ine2                               |
+        line3                               |
+        line4                               |
+        line5                               |
+        line6                               |
+        line7                               |
+                                            |
+      ]])
+      feed('gg')
+      screen:expect([[
+        ^ty ready                           |
+        line1                               |
+        line2                               |
+        line3                               |
+        line4                               |
+        line5                               |
+                                            |
+      ]])
+      feed('G')
+      screen:expect([[
+        line3                               |
+        line4                               |
+        line5                               |
+        line6                               |
+        line7                               |
+        ^ine8{2: }                              |
+                                            |
+      ]])
+    end)
+
+    it('will hide top lines when the height decreases', function()
+      screen:try_resize(screen._width, screen._height - 1)
+      screen:expect([[
+        line2                               |
+        line3                               |
+        line4                               |
+        screen resized. rows: 5, columns: 36|
+        ^                                   |
+        {1:-- TERMINAL --}                      |
+      ]])
+      eq(7, curbuf('line_count'))
+      screen:try_resize(screen._width, screen._height - 2)
+      screen:expect([[
+        screen resized. rows: 5, columns: 36|
+        screen resized. rows: 3, columns: 36|
+        ^                                   |
+        {1:-- TERMINAL --}                      |
+      ]])
+      eq(8, curbuf('line_count'))
+      feed('<c-\\><c-n>3k')
+      screen:expect([[
+        ^ine4                               |
+        screen resized. rows: 5, columns: 36|
+        screen resized. rows: 3, columns: 36|
+                                            |
+      ]])
+    end)
+  end)
+
+  describe('with empty lines between the cursor and the bottom', function()
+    it('will delete empty lines at the bottom if height descreases', function()
+      screen:try_resize(screen._width, screen._height - 2)
+      screen:expect([[
+        tty ready                           |
+        screen resized. rows: 4, columns: 36|
+        ^                                   |
+                                            |
+        {1:-- TERMINAL --}                      |
+      ]])
+      eq(4, curbuf('line_count'))
+    end)
   end)
 end)
