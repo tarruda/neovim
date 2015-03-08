@@ -849,6 +849,7 @@ static void refresh_size(Terminal *term)
     return;
   }
 
+  term->pending_resize = false;
   int width, height;
   vterm_get_size(term->vt, &height, &width);
   term->invalid_start = 0;
