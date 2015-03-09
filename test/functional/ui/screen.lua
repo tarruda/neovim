@@ -190,8 +190,11 @@ function Screen:set_default_attr_ignore(attr_ignore)
   self._default_attr_ignore = attr_ignore
 end
 
-function Screen:attach()
-  request('ui_attach', self._width, self._height, true)
+function Screen:attach(rgb)
+  if rgb == nil then
+    rgb = true
+  end
+  request('ui_attach', self._width, self._height, rgb)
 end
 
 function Screen:detach()
