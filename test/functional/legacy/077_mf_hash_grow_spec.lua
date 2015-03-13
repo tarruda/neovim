@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Inserts 2 million lines with consecutive integers starting from 1
 -- (essentially, the output of GNU's seq 1 2000000), writes them to Xtest
 -- and calculates its cksum.
@@ -11,7 +12,7 @@ local feed, insert, source = helpers.feed, helpers.insert, helpers.source
 local clear, execute, expect = helpers.clear, helpers.execute, helpers.expect
 
 describe('mf_hash_grow()', function()
-  setup(clear)
+  before_first(clear)
 
   -- Check to see if cksum exists, otherwise skip the test
   if os.execute('which cksum 2>&1 > /dev/null') ~= 0 then

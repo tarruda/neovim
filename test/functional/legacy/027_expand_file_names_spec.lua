@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Test for expanding file names
 
 local helpers = require('test.functional.helpers')
@@ -7,7 +8,7 @@ local curbuf_contents = helpers.curbuf_contents
 local eq, eval = helpers.eq, helpers.eval
 
 describe('expand file name', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     execute('!mkdir Xdir1')

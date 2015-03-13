@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- vim: set foldmethod=marker foldmarker=[[,]] :
 -- Test for autocommand that changes current buffer on BufEnter event.
 -- Check if modelines are interpreted for the correct buffer.
@@ -7,7 +8,7 @@ local clear, feed, insert = helpers.clear, helpers.feed, helpers.insert
 local execute, expect = helpers.execute, helpers.expect
 
 describe('BufEnter with modelines', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     insert([[

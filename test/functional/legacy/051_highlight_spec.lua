@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- vim: set foldmethod=marker foldmarker=[[,]] :
 -- Tests for ":highlight".
 
@@ -8,7 +9,7 @@ local execute, expect = helpers.execute, helpers.expect
 local wait = helpers.wait
 
 describe(':highlight', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     local screen = Screen.new(35, 10)

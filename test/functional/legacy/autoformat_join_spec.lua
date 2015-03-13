@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- vim: set foldmethod=marker foldmarker=[[,]] :
 -- Tests for setting the '[,'] marks when joining lines.
 
@@ -6,7 +7,7 @@ local clear, feed, insert = helpers.clear, helpers.feed, helpers.insert
 local execute, expect = helpers.execute, helpers.expect
 
 describe('autoformat join', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     insert([[

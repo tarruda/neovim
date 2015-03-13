@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Tests for undo file.
 -- Since this script is sourced we need to explicitly break changes up in
 -- undo-able pieces.  Do that by setting 'undolevels'.
@@ -7,7 +8,7 @@ local feed, insert, source = helpers.feed, helpers.insert, helpers.source
 local clear, execute, expect = helpers.clear, helpers.execute, helpers.expect
 
 describe('72', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     insert([[

@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Test for autocommand that deletes the current buffer on BufLeave event.
 -- Also test deleting the last buffer, should give a new, empty buffer.
 
@@ -6,7 +7,7 @@ local clear, feed, insert = helpers.clear, helpers.feed, helpers.insert
 local execute, expect = helpers.execute, helpers.expect
 
 describe('test5', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     insert([[

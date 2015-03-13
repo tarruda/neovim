@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Test for :execute, :while and :if
 
 local helpers = require('test.functional.helpers')
@@ -6,7 +7,7 @@ local execute, expect = helpers.execute, helpers.expect
 local source = helpers.source
 
 describe(':execute, :while and :if', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     source([[

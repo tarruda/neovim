@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- vim: set foldmethod=marker foldmarker=[[,]] :
 -- Test for visual block shift and tab characters.
 
@@ -6,7 +7,7 @@ local clear, feed, insert = helpers.clear, helpers.feed, helpers.insert
 local execute, expect = helpers.execute, helpers.expect
 
 describe('visual block shift and tab characters', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     insert([[

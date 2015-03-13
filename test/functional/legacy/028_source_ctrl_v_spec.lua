@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Test for sourcing a file with CTRL-V's at the end of the line
 
 local helpers = require('test.functional.helpers')
@@ -5,7 +6,7 @@ local clear, feed, insert = helpers.clear, helpers.feed, helpers.insert
 local execute, expect = helpers.execute, helpers.expect
 
 describe('CTRL-V at the end of the line', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     insert([[

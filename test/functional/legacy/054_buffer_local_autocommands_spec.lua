@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Some tests for buffer-local autocommands
 
 local helpers = require('test.functional.helpers')
@@ -5,7 +6,7 @@ local clear, execute, eq = helpers.clear, helpers.execute, helpers.eq
 local curbuf_contents = helpers.curbuf_contents
 
 describe('BufLeave <buffer>', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     execute('w! xx')

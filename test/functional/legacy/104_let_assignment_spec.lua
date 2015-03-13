@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Tests for :let.
 
 local helpers = require('test.functional.helpers')
@@ -5,7 +6,7 @@ local clear, source = helpers.clear, helpers.source
 local execute, expect = helpers.execute, helpers.expect
 
 describe(':let', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     execute('set runtimepath+=test/functional/fixtures')

@@ -271,7 +271,13 @@ local function expect(contents)
   return eq(dedent(contents), curbuf_contents())
 end
 
-clear()
+function once(fn)
+  assert(fn ~= nil)
+  return function()
+    if fn then fn() end
+    fn = nil
+  end
+end
 
 return {
   clear = clear,

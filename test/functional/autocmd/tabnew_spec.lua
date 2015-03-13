@@ -1,11 +1,13 @@
+before_first = function(cb) before_each(once(cb)) end
 local helpers = require('test.functional.helpers')
 local clear, nvim, buffer, curbuf, curwin, eq, neq, ok =
   helpers.clear, helpers.nvim, helpers.buffer, helpers.curbuf, helpers.curwin,
   helpers.eq, helpers.neq, helpers.ok
 
+
 describe('TabNew', function()
+    before_first(clear)
     describe('au TabNew', function()
-        clear()
         describe('with * as <afile>', function()
             it('matches when opening any new tab', function()
                 nvim('command', 'au! TabNew * echom "tabnew:".tabpagenr().":".bufnr("")')

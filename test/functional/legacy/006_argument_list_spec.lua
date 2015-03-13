@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Test for autocommand that redefines the argument list, when doing ":all".
 
 local helpers = require('test.functional.helpers')
@@ -6,7 +7,7 @@ local execute, dedent, eq = helpers.execute, helpers.dedent, helpers.eq
 local curbuf_contents = helpers.curbuf_contents
 
 describe('argument list', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     insert([[

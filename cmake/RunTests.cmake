@@ -13,8 +13,12 @@ else()
   set(TEST_PATH "${TEST_DIR}/${TEST_TYPE}")
 endif()
 
+if(DEFINED ENV{TEST_TAG})
+  set(TEST_TAG "--tags=$ENV{TEST_TAG}")
+endif()
+
 execute_process(
-  COMMAND ${BUSTED_PRG} -v -o ${BUSTED_OUTPUT_TYPE}
+  COMMAND ${BUSTED_PRG} ${TEST_TAG} -v -o ${BUSTED_OUTPUT_TYPE}
     --helper=${TEST_DIR}/${TEST_TYPE}/preload.lua
     --lpath=${BUILD_DIR}/?.lua ${TEST_PATH}
   WORKING_DIRECTORY ${WORKING_DIR}

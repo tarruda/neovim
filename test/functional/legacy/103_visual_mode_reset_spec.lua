@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Test for visual mode not being reset causing E315 error.
 
 local helpers = require('test.functional.helpers')
@@ -5,7 +6,7 @@ local feed, insert, source = helpers.feed, helpers.insert, helpers.source
 local clear, execute, expect = helpers.clear, helpers.execute, helpers.expect
 
 describe('E315 error', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     -- At this point there is no visual selection because :call reset it.

@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Tests for :right on text with embedded TAB.
 -- Also test formatting a paragraph.
 -- Also test undo after ":%s" and formatting.
@@ -7,7 +8,7 @@ local feed, insert, source = helpers.feed, helpers.insert, helpers.source
 local clear, execute, expect = helpers.clear, helpers.execute, helpers.expect
 
 describe('alignment', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     insert([[

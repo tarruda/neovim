@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 local helpers = require('test.functional.helpers')
 local Screen = require('test.functional.ui.screen')
 local clear, feed, nvim = helpers.clear, helpers.feed, helpers.nvim

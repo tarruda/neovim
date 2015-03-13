@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Specs for
 -- - `system()`
 -- - `systemlist()`
@@ -18,7 +19,7 @@ end
 
 local function delete_file(name)
   return function()
-    eval("delete('"..name.."')")
+    io.popen('rm -f '..name):close()
   end
 end
 
@@ -151,7 +152,7 @@ describe('system()', function()
   describe('with output containing NULs', function()
     local fname = 'Xtest'
 
-    setup(create_file_with_nuls(fname))
+    before_first(create_file_with_nuls(fname))
     teardown(delete_file(fname))
 
     it('replaces NULs by SOH characters', function()
@@ -301,7 +302,7 @@ describe('systemlist()', function()
   describe('with output containing NULs', function()
     local fname = 'Xtest'
 
-    setup(create_file_with_nuls(fname))
+    before_first(create_file_with_nuls(fname))
     teardown(delete_file(fname))
 
     it('replaces NULs by newline characters', function()

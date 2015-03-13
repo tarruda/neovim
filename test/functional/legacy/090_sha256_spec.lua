@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Tests for sha256() function.
 
 local helpers = require('test.functional.helpers')
@@ -5,7 +6,7 @@ local feed, insert, source = helpers.feed, helpers.insert, helpers.source
 local clear, execute, expect = helpers.clear, helpers.execute, helpers.expect
 
 describe('sha256()', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     insert("start:")

@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Test Ctrl-A and Ctrl-X, which increment and decrement decimal, hexadecimal,
 -- and octal numbers.
 
@@ -6,7 +7,7 @@ local clear, feed, insert = helpers.clear, helpers.feed, helpers.insert
 local execute, expect = helpers.execute, helpers.expect
 
 describe('increment and decrement commands', function()
-  setup(clear)
+  before_first(clear)
 
   it('should work', function()
     -- Insert some numbers in various bases.

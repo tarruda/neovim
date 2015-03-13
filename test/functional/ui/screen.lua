@@ -123,15 +123,33 @@ if os.getenv('CI_TARGET') then
   default_screen_timeout = default_screen_timeout * 3
 end
 
-local colors = request('vim_get_color_map')
-local colornames = {}
-for name, rgb in pairs(colors) do
+do
+  local Loop = require('nvim.loop')
+  local MsgpackStream = require('nvim.msgpack_stream')
+  local AsyncSession = require('nvim.async_session')
+  local Session = require('nvim.session')
+  local loop = Loop.new()
+  local msgpack_stream = MsgpackStream.new(loop)
+  local async_session = AsyncSession.new(msgpack_stream)
+  local session = Session.new(async_session)
+  local nvim_prog = os.getenv('NVIM_PROG') or 'build/bin/nvim'
+  loop:spawn({nvim_prog, '-u', 'NONE', '-N', '--embed'})
+  local status, rv = session:request('vim_get_color_map')
+  if not status then
+    print('failed to get color map')
+    os.exit(1)
+  end
+  local colors = rv
+  local colornames = {}
+  for name, rgb in pairs(colors) do
     -- we disregard the case that colornames might not be unique, as
     -- this is just a helper to get any canonical name of a color
     colornames[rgb] = name
+  end
+  session:exit(0)
+  Screen.colors = colors
+  Screen.colornames = colornames
 end
-
-Screen.colors = colors
 
 function Screen.debug(command)
   if not command then
@@ -496,8 +514,8 @@ function pprint_attrs(attrs)
     for f, v in pairs(attrs) do
       local desc = tostring(v)
       if f == "foreground" or f == "background" then
-        if colornames[v] ~= nil then
-          desc = "Screen.colors."..colornames[v]
+        if Screen.colornames[v] ~= nil then
+          desc = "Screen.colors."..Screen.colornames[v]
         end
       end
       table.insert(items, f.." = "..desc)

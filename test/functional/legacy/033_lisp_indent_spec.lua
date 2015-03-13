@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- vim: set foldmethod=marker foldmarker=[[,]] :
 -- Test for 'lisp'
 -- If the lisp feature is not enabled, this will fail!
@@ -7,7 +8,7 @@ local clear, feed, insert = helpers.clear, helpers.feed, helpers.insert
 local execute, expect = helpers.execute, helpers.expect
 
 describe('lisp indent', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     insert([[

@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Test if URLs are recognized as filenames by commands such as "gf". Here
 -- we'll use `expand("<cfile>")` since "gf" would need to open the file.
 
@@ -6,7 +7,7 @@ local clear, feed, insert = helpers.clear, helpers.feed, helpers.insert
 local execute, expect = helpers.execute, helpers.expect
 
 describe('filename recognition', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     -- insert some lines containing URLs

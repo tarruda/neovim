@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Test for jumping to a tag with 'hidden' set, with symbolic link in path of tag.
 -- This only works for Unix, because of the symbolic link.
 
@@ -6,7 +7,7 @@ local clear, feed, insert = helpers.clear, helpers.feed, helpers.insert
 local execute, expect = helpers.execute, helpers.expect
 
 describe('jump to a tag with hidden set', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     insert([[

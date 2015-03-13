@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Test for v:hlsearch
 
 local helpers = require('test.functional.helpers')
@@ -6,7 +7,7 @@ local execute, expect = helpers.execute, helpers.expect
 local eval = helpers.eval
 
 describe('v:hlsearch', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     -- Last abc: Q

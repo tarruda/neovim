@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Test that groups and patterns are tested correctly when calling exists() for
 -- autocommands.
 
@@ -6,7 +7,7 @@ local clear, feed, insert = helpers.clear, helpers.feed, helpers.insert
 local execute, expect = helpers.execute, helpers.expect
 
 describe('augroup when calling exists()', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     execute('let results=[]')

@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Test clipboard provider support
 
 local helpers = require('test.functional.helpers')
@@ -62,7 +63,7 @@ local function basic_register_test()
 end
 
 describe('clipboard usage', function()
-  setup(reset)
+  before_first(reset)
   it("works", function()
     basic_register_test()
 

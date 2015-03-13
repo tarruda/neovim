@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Tests for repeating insert and replace.
 
 local helpers = require('test.functional.helpers')
@@ -5,7 +6,7 @@ local clear, feed, insert = helpers.clear, helpers.feed, helpers.insert
 local execute, expect = helpers.execute, helpers.expect
 
 describe('insertcount', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     insert([[

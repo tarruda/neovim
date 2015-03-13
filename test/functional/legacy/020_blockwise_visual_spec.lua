@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- vim: set foldmethod=marker foldmarker=[[,]] :
 -- Tests Blockwise Visual when there are TABs before the text.
 -- First test for undo working properly when executing commands from a register.
@@ -8,7 +9,7 @@ local clear, feed, insert = helpers.clear, helpers.feed, helpers.insert
 local execute, expect = helpers.execute, helpers.expect
 
 describe('blockwise visual', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     insert([[

@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- Test for regexp patterns with multi-byte support, using utf-8.
 -- See test64 for the non-multi-byte tests.
 -- A pattern that gives the expected result produces OK, so that we know it was
@@ -8,7 +9,7 @@ local feed, insert, source = helpers.feed, helpers.insert, helpers.source
 local clear, execute, expect = helpers.clear, helpers.execute, helpers.expect
 
 describe('regex with multi-byte', function()
-  setup(clear)
+  before_first(clear)
 
   it('is working', function()
     insert([[

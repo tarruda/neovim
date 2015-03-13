@@ -1,3 +1,4 @@
+before_first = function(cb) before_each(once(cb)) end
 -- vim: set foldmethod=marker foldmarker=[[,]] :
 -- Test whether glob()/globpath() return correct results with certain escaped
 -- characters.
@@ -7,9 +8,9 @@ local clear, feed, insert = helpers.clear, helpers.feed, helpers.insert
 local execute, expect = helpers.execute, helpers.expect
 
 describe('glob() and globpath()', function()
-  setup(clear)
+  before_first(clear)
 
-  setup(function()
+  before_first(function()
     os.execute("mkdir -p sautest/autoload")
     os.execute("touch sautest/autoload/Test104.vim")
     os.execute("touch sautest/autoload/footest.vim")
