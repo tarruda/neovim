@@ -123,6 +123,14 @@ if os.getenv('CI_TARGET') then
   default_screen_timeout = default_screen_timeout * 3
 end
 
+if os.getenv('TEST_SCREEN_TIMEOUT') then
+  local timeout = tonumber(os.getenv('TEST_SCREEN_TIMEOUT'))
+  if timeout then
+    default_screen_timeout = timeout
+  end
+end
+
+
 do
   local Loop = require('nvim.loop')
   local MsgpackStream = require('nvim.msgpack_stream')
