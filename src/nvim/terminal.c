@@ -10,21 +10,22 @@
 // vterm_keyboard_key/vterm_keyboard_unichar, which generates byte streams that
 // must be fed back to the master fd.
 //
-// This implementation uses Neovim buffers as the display mechanism for both the
-// visible screen and the scrollback buffer. When focused, the window "pins" to
-// the bottom of the buffer and mirrors libvterm screen state.
+// This implementation uses Neovim buffers as the display mechanism for both
+// the visible screen and the scrollback buffer. When focused, the window
+// "pins" to the bottom of the buffer and mirrors libvterm screen state.
 //
-// When a line becomes invisible due to a decrease in screen height or because a
-// line was pushed up during normal terminal output, we store the line
-// information in the scrollback buffer which is mirrored in the Neovim buffer
+// When a line becomes invisible due to a decrease in screen height or because
+// a line was pushed up during normal terminal output, we store the line
+// information in the scrollback buffer, which is mirrored in the Neovim buffer
 // by appending lines just above the visible part of the buffer.
 //
 // When the screen height increases, libvterm will ask for a row in the
 // scrollback buffer, which is mirrored in the Neovim buffer displaying lines
 // that were previously invisible.
 //
-// The vterm->Neovim synchronization is in intervals of 10 milliseconds. This is
-// done to increase refresh performance when receiving large bursts of data.
+// The vterm->Neovim synchronization is performed in intervals of 10
+// milliseconds. This is done to minimize screen updates when receiving when
+// receiving large bursts of data.
 //
 // This module is decoupled from the processes that normally feed it data, so
 // its possible to use it as a general purpose console buffer(possibly as a

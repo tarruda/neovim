@@ -72,7 +72,6 @@
 #include "nvim/os/time.h"
 #include "nvim/ex_cmds_defs.h"
 #include "nvim/mouse.h"
-#include "nvim/os/job.h"
 #include "nvim/os/rstream.h"
 #include "nvim/os/wstream.h"
 

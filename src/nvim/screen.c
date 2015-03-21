@@ -2593,7 +2593,7 @@ win_line (
     off += col;
   }
 
-  // wont highlight after 1024 columns 
+  // wont highlight after 1024 columns
   int term_attrs[1024] = {0};
   if (wp->w_buffer->terminal) {
     terminal_get_line_attributes(wp->w_buffer->terminal, wp, lnum, term_attrs);

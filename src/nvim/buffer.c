@@ -313,14 +313,14 @@ close_buffer (
   // The caller must take care of NOT deleting/freeing when 'bufhidden' is
   // "hide" (otherwise we could never free or delete a buffer).
   if (!buf->terminal) {
-    if (buf->b_p_bh[0] == 'd') {        // 'bufhidden' == "delete"
+    if (buf->b_p_bh[0] == 'd') {         // 'bufhidden' == "delete"
       del_buf = true;
       unload_buf = true;
-    } else if (buf->b_p_bh[0] == 'w') { // 'bufhidden' == "wipe"
+    } else if (buf->b_p_bh[0] == 'w') {  // 'bufhidden' == "wipe"
       del_buf = true;
       unload_buf = true;
       wipe_buf = true;
-    } else if (buf->b_p_bh[0] == 'u')   // 'bufhidden' == "unload"
+    } else if (buf->b_p_bh[0] == 'u')    // 'bufhidden' == "unload"
       unload_buf = true;
   }
 
