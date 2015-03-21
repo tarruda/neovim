@@ -212,7 +212,7 @@ void job_stop(Job *job)
     job_close_streams(job);
     pty_process_close_master(job);
   } else {
-    // Close the job's stdin. If the job doesn't close it's own stdout/stderr,
+    // Close the job's stdin. If the job doesn't close its own stdout/stderr,
     // they will be closed when the job exits(possibly due to being terminated
     // after a timeout)
     close_job_in(job);
