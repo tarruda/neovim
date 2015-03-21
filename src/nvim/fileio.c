@@ -5209,7 +5209,7 @@ static struct event_name {
   {"TabNew",          EVENT_TABNEW},
   {"TabNewEntered",   EVENT_TABNEWENTERED},
   {"TermChanged",     EVENT_TERMCHANGED},
-  {"TermCreate",      EVENT_TERMCREATE},
+  {"TermOpen",        EVENT_TERMOPEN},
   {"TermResponse",    EVENT_TERMRESPONSE},
   {"TextChanged",     EVENT_TEXTCHANGED},
   {"TextChangedI",    EVENT_TEXTCHANGEDI},

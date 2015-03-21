@@ -14915,15 +14915,12 @@ static void f_termopen(typval_T *argvars, typval_T *rettv)
   topts.write_cb = term_write;
   topts.resize_cb = term_resize;
   topts.close_cb = term_close;
-  Terminal *term = terminal_open(topts);
-  data->term = term;
-  data->refcount++;
+
   char *cwd = ".";
   if (argvars[1].v_type == VAR_STRING
       && os_isdir(argvars[1].vval.v_string)) {
     cwd = (char *)argvars[1].vval.v_string;
   }
-
   int pid = job_pid(job);
   char buf[1024];
   // format the title with the pid to conform with the term:// URI 
@@ -14933,11 +14930,14 @@ static void f_termopen(typval_T *argvars, typval_T *rettv)
   data->autocmd_file = xstrdup(buf);
   // Save the job id and pid in b:terminal_job_{id,pid}
   Error err;
-  dict_set_value(curbuf->b_vars, cstr_as_string("term_job_id"),
+  dict_set_value(curbuf->b_vars, cstr_as_string("terminal_job_id"),
       INTEGER_OBJ(rettv->vval.v_number), &err);
-  dict_set_value(curbuf->b_vars, cstr_as_string("term_job_pid"),
+  dict_set_value(curbuf->b_vars, cstr_as_string("terminal_job_pid"),
       INTEGER_OBJ(pid), &err);
-  apply_autocmds(EVENT_TERMCREATE, (uint8_t *)buf, NULL, TRUE, NULL);
+
+  Terminal *term = terminal_open(topts);
+  data->term = term;
+  data->refcount++;
 }
 
 /*

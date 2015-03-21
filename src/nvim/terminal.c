@@ -73,7 +73,7 @@
 # include "terminal.c.generated.h"
 #endif
 
-#define SCROLLBACK_DEFAULT_SIZE 1000
+#define SCROLLBACK_BUFFER_DEFAULT_SIZE 1000
 #define MAX_KEY_LENGTH 256
 // Delay for refreshing the terminal buffer after receiving updates from
 // libvterm. This is greatly improves performance when receiving large bursts of
@@ -126,6 +126,12 @@ struct terminal {
   int pressed_button;
   // pending width/height
   bool pending_resize;
+  // color palette. this isn't set directly in the vterm instance because 
+  // the default values are used to obtain the color numbers passed to cterm
+  // colors
+  RgbValue colors[256];
+  // attributes for focused/unfocused cursor cells
+  int focused_cursor_attr_id, unfocused_cursor_attr_id;
 };
 
 static VTermScreenCallbacks vterm_screen_callbacks = {
@@ -184,11 +190,9 @@ Terminal *terminal_open(TerminalOptions opts)
   // Create a new terminal instance and configure it
   Terminal *rv = xcalloc(1, sizeof(Terminal));
   rv->opts = opts;
-  rv->sb_size = SCROLLBACK_DEFAULT_SIZE;
-  rv->sb_buffer = xmalloc(sizeof(ScrollbackLine *) * rv->sb_size);
   rv->cursor.visible = true;
   // Associate the terminal instance with the new buffer
-  rv->buf= curbuf;
+  rv->buf = curbuf;
   curbuf->terminal = rv;
   // Create VTerm
   rv->vt = vterm_new(opts.height, opts.width);
@@ -214,6 +218,78 @@ Terminal *terminal_open(TerminalOptions opts)
   set_option_value((uint8_t *)"number", false, NULL, OPT_LOCAL);
   set_option_value((uint8_t *)"relativenumber", false, NULL, OPT_LOCAL);
   RESET_BINDING(curwin);
+  // Apply TermOpen autocmds so the user can configure the terminal
+  apply_autocmds(EVENT_TERMOPEN, NULL, NULL, TRUE, curbuf);
+
+  // Configure the scrollback buffer. Try to get the size from:
+  //
+  // - b:terminal_scrollback_buffer_size
+  // - g:terminal_scrollback_buffer_size
+  // - SCROLLBACK_BUFFER_DEFAULT_SIZE
+  //
+  // but limit to 100k.
+  int size = get_config_int(rv, "terminal_scrollback_buffer_size");
+  rv->sb_size = size > 0 ? (size_t)size : SCROLLBACK_BUFFER_DEFAULT_SIZE;
+  rv->sb_size = MIN(rv->sb_size, 100000);
+  rv->sb_buffer = xmalloc(sizeof(ScrollbackLine *) * rv->sb_size);
+
+  // Configure the color palette. Try to get the color from:
+  //
+  // - b:terminal_color_{NUM}
+  // - g:terminal_color_{NUM}
+  // - the VTerm instance
+  for (int i = 0; i < (int)ARRAY_SIZE(rv->colors); i++) {
+    RgbValue color_val = -1;
+    char var[64];
+    snprintf(var, sizeof(var), "terminal_color_%d", i);
+    char *name = get_config_string(rv, var);
+    if (name) {
+      color_val = name_to_color((uint8_t *)name);
+      if (color_val != -1) {
+        rv->colors[i] = color_val;
+      }
+    }
+
+    if (color_val == -1) {
+      // the default is taken from vterm
+      VTermColor color;
+      vterm_state_get_palette_color(state, i, &color);
+      rv->colors[i] = RGB(color.red, color.green, color.blue);
+    }
+  }
+
+  // Configure cursor highlighting when focused/unfocused
+  char *group = get_config_string(rv, "terminal_focused_cursor_highlight");
+  if (group) {
+    int group_id = syn_name2id((uint8_t *)group);
+
+    if (group_id) {
+      rv->focused_cursor_attr_id = syn_id2attr(group_id);
+    }
+  }
+  if (!rv->focused_cursor_attr_id) {
+    rv->focused_cursor_attr_id = get_attr_entry(&(attrentry_T) {
+      .rgb_ae_attr = HL_INVERSE, .rgb_fg_color = -1, .rgb_bg_color = -1,
+      .cterm_ae_attr = HL_INVERSE, .cterm_fg_color = 0, .cterm_bg_color = 0
+    });
+  }
+
+  group = get_config_string(rv, "terminal_unfocused_cursor_highlight");
+  if (group) {
+    int group_id = syn_name2id((uint8_t *)group);
+    if (group_id) {
+      rv->unfocused_cursor_attr_id = syn_id2attr(group_id);
+    }
+  }
+  if (!rv->unfocused_cursor_attr_id) {
+    int yellow_rgb = RGB(0xfc, 0xe9, 0x4f);
+    int yellow_term = 12;
+    rv->unfocused_cursor_attr_id = get_attr_entry(&(attrentry_T) {
+      .rgb_ae_attr = 0, .rgb_fg_color = -1, .rgb_bg_color = yellow_rgb,
+      .cterm_ae_attr = 0, .cterm_fg_color = 0, .cterm_bg_color = yellow_term,
+    });
+  }
+
   return rv;
 }
 
@@ -421,10 +497,22 @@ void terminal_get_line_attributes(Terminal *term, win_T *wp, int linenr,
   for (int col = 0; col < width; col++) {
     VTermScreenCell cell;
     fetch_cell(term, row, col, &cell);
+    // Get the rgb value set by libvterm.
     int vt_fg = RGB(cell.fg.red, cell.fg.green, cell.fg.blue);
-    vt_fg = vt_fg != default_vt_fg ? vt_fg : - 1;
     int vt_bg = RGB(cell.bg.red, cell.bg.green, cell.bg.blue);
+    vt_fg = vt_fg != default_vt_fg ? vt_fg : - 1;
     vt_bg = vt_bg != default_vt_bg ? vt_bg : - 1;
+    // Since libvterm does not expose the color index used by the program, we
+    // use the rgb value to find the appropriate index in the cache computed by
+    // `terminal_init`.
+    int vt_fg_idx = vt_fg != default_vt_fg ?
+                    map_get(int, int)(color_indexes, vt_fg) : 0;
+    int vt_bg_idx = vt_bg != default_vt_bg ?
+                    map_get(int, int)(color_indexes, vt_bg) : 0;
+    // The index is now used to get the final rgb value from the
+    // user-customizable palette.
+    int vt_fg_rgb = vt_fg_idx != 0 ? term->colors[vt_fg_idx - 1] : -1;
+    int vt_bg_rgb = vt_bg_idx != 0 ? term->colors[vt_bg_idx - 1] : -1;
 
     int hl_attrs = (cell.attrs.bold ? HL_BOLD : 0)
                  | (cell.attrs.italic ? HL_ITALIC : 0)
@@ -436,31 +524,18 @@ void terminal_get_line_attributes(Terminal *term, win_T *wp, int linenr,
     if (hl_attrs || vt_fg != -1 || vt_bg != -1) {
       attr_id = get_attr_entry(&(attrentry_T) {
         .cterm_ae_attr = (int16_t)hl_attrs,
-        .cterm_fg_color = vt_fg != default_vt_fg ?
-                          map_get(int, int)(color_indexes, vt_fg) :
-                          0,
-        .cterm_bg_color = vt_bg != default_vt_bg ?
-                          map_get(int, int)(color_indexes, vt_bg) :
-                          0,
+        .cterm_fg_color = vt_fg_idx,
+        .cterm_bg_color = vt_bg_idx,
         .rgb_ae_attr = (int16_t)hl_attrs,
-        // TODO(tarruda): let the user customize the rgb color palette. An
-        // option is to read buffer variables with global fallback
-        .rgb_fg_color = vt_fg != default_vt_fg ? vt_fg : -1,
-        .rgb_bg_color = vt_bg != default_vt_bg ? vt_bg : -1,
+        .rgb_fg_color = vt_fg_rgb,
+        .rgb_bg_color = vt_bg_rgb,
       });
     }
 
     if (term->cursor.visible && term->cursor.row == row
         && term->cursor.col == col) {
-      bool focused = is_focused(term) && wp == curwin;
-      attr_id = hl_combine_attr(attr_id, get_attr_entry(&(attrentry_T) {
-        .rgb_ae_attr = focused ? HL_INVERSE : 0,
-        .rgb_fg_color = -1,
-        .rgb_bg_color = focused ? -1 : RGB(0xfc, 0xe9, 0x4f),
-        .cterm_ae_attr = focused ? HL_INVERSE : 0,
-        .cterm_fg_color = 0,
-        .cterm_bg_color = focused ? 0 : 12,
-      }));
+      attr_id = hl_combine_attr(attr_id, is_focused(term) && wp == curwin ?
+          term->focused_cursor_attr_id : term->unfocused_cursor_attr_id);
     }
 
     term_attrs[col] = attr_id;
@@ -1003,6 +1078,35 @@ static int linenr_to_row(Terminal *term, int linenr)
 static bool is_focused(Terminal *term)
 {
   return State & TERM_FOCUS && curbuf == term->buf;
+}
+
+#define GET_CONFIG_VALUE(t, k, o)                                        \
+  do {                                                                   \
+    Error err;                                                           \
+    o = dict_get_value(t->buf->b_vars, cstr_as_string(k), &err);         \
+    if (obj.type == kObjectTypeNil) {                                    \
+      o = dict_get_value(&globvardict, cstr_as_string(k), &err);         \
+    }                                                                    \
+  } while (0)
+
+static char *get_config_string(Terminal *term, char *key)
+{
+  Object obj = OBJECT_INIT;
+  GET_CONFIG_VALUE(term, key, obj);
+  if (obj.type == kObjectTypeString) {
+    return obj.data.string.data;
+  }
+  return NULL;
+}
+
+static int get_config_int(Terminal *term, char *key)
+{
+  Object obj = OBJECT_INIT;
+  GET_CONFIG_VALUE(term, key, obj);
+  if (obj.type == kObjectTypeInteger) {
+    return (int)obj.data.integer;
+  }
+  return 0;
 }
 
 // }}}
