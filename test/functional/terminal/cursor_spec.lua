@@ -1,6 +1,8 @@
 local helpers = require('test.functional.helpers')
+local Screen = require('test.functional.ui.screen')
 local thelpers = require('test.functional.terminal.helpers')
 local feed, clear, nvim = helpers.feed, helpers.clear, helpers.nvim
+local nvim_dir, execute = helpers.nvim_dir, helpers.execute
 local hide_cursor = thelpers.hide_cursor
 local show_cursor = thelpers.show_cursor
 
@@ -117,3 +119,53 @@ describe('cursor', function()
     end)
   end)
 end)
+
+
+describe('cursor with customized highlighting', function()
+  local screen
+
+  before_each(function()
+    clear()
+    nvim('set_var', 'terminal_focused_cursor_highlight', 'CursorFocused')
+    nvim('set_var', 'terminal_unfocused_cursor_highlight', 'CursorUnfocused')
+    nvim('command', 'highlight CursorFocused ctermfg=45 ctermbg=46')
+    nvim('command', 'highlight CursorUnfocused ctermfg=55 ctermbg=56')
+    screen = Screen.new(50, 7)
+    screen:set_default_attr_ids({
+      [1] = {foreground = 45, background = 46},
+      [2] = {foreground = 55, background = 56}
+    })
+    screen:set_default_attr_ignore({
+      [1] = {bold = true},
+      [2] = {foreground = 12},
+      [3] = {bold = true, reverse = true},
+      [5] = {background = 11},
+      [6] = {foreground = 130},
+    })
+    screen:attach(false)
+    execute('term "' ..nvim_dir.. '/tty-test"')
+  end)
+
+  it('overrides the default highlighting', function()
+    screen:expect([[
+      tty ready                                         |
+      {1: }                                                 |
+                                                        |
+                                                        |
+                                                        |
+                                                        |
+      -- TERMINAL --                                    |
+    ]])
+    feed('<c-\\><c-n>')
+    screen:expect([[
+      tty ready                                         |
+      {2: }                                                 |
+                                                        |
+                                                        |
+                                                        |
+      ^                                                  |
+                                                        |
+    ]])
+  end)
+end)
+

@@ -17,6 +17,39 @@ describe('terminal scrollback', function()
     screen:detach()
   end)
 
+  describe('when the limit is crossed', function()
+    before_each(function()
+      local lines = {}
+      for i = 1, 30 do
+        table.insert(lines, 'line'..tostring(i))
+      end
+      table.insert(lines, '')
+      feed_data(lines)
+      screen:expect([[
+        line26                                            |
+        line27                                            |
+        line28                                            |
+        line29                                            |
+        line30                                            |
+        {1: }                                                 |
+        -- TERMINAL --                                    |
+      ]])
+    end)
+
+    it('will delete extra lines at the top', function()
+      feed('<c-\\><c-n>gg')
+      screen:expect([[
+        ^line16                                            |
+        line17                                            |
+        line18                                            |
+        line19                                            |
+        line20                                            |
+        line21                                            |
+                                                          |
+      ]])
+    end)
+  end)
+
   describe('with the cursor at the last row', function()
     before_each(function()
       feed_data({'line1', 'line2', 'line3', 'line4', ''})
