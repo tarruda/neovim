@@ -28,7 +28,7 @@
 // receiving large bursts of data.
 //
 // This module is decoupled from the processes that normally feed it data, so
-// its possible to use it as a general purpose console buffer(possibly as a
+// it's possible to use it as a general purpose console buffer(possibly as a
 // log/display mechanism for Neovim in the future)
 //
 // Inspired by vimshell(http://www.wana.at/vimshell/) and
@@ -75,10 +75,9 @@
 #endif
 
 #define SCROLLBACK_BUFFER_DEFAULT_SIZE 1000
-#define MAX_KEY_LENGTH 256
 // Delay for refreshing the terminal buffer after receiving updates from
-// libvterm. This is greatly improves performance when receiving large bursts of
-// data.
+// libvterm. This is greatly improves performance when receiving large bursts
+// of data.
 #define REFRESH_DELAY 10
 
 static uv_timer_t refresh_timer;
@@ -156,7 +155,7 @@ void terminal_init(void)
   uv_timer_init(uv_default_loop(), &refresh_timer);
 
   // initialize a rgb->color index map for cterm attributes(VTermScreenCell
-  // only has RGB infomation and we need color indexes for terminal UIs)
+  // only has RGB information and we need color indexes for terminal UIs)
   color_indexes = map_new(int, int)();
   VTerm *vt = vterm_new(24, 80);
   VTermState *state = vterm_obtain_state(vt);
@@ -985,7 +984,7 @@ static void refresh_screen(Terminal *term)
   int height;
   int width;
   vterm_get_size(term->vt, &height, &width);
-  // Its possible that the terminal height decreased and `term->invalid_end`
+  // It's possible that the terminal height decreased and `term->invalid_end`
   // doesn't reflect it yet
   term->invalid_end = MIN(term->invalid_end, height);
 
@@ -1056,7 +1055,7 @@ static void adjust_topline(Terminal *term)
       // valid line
       wp->w_cursor.lnum = MIN(wp->w_cursor.lnum, term->buf->b_ml.ml_line_count);
       if (curbuf != term->buf || is_focused(term)) {
-        // if the terminal is not in the current window or if its focused,
+        // if the terminal is not in the current window or if it's focused,
         // adjust topline/cursor so the window will "follow" the terminal
         // output
         wp->w_cursor.lnum = term->buf->b_ml.ml_line_count;
