@@ -765,7 +765,7 @@ static void mouse_action(Terminal *term, int button, int row, int col,
 }
 
 // process a mouse event while the terminal is focused. return true if the
-// terminal lose focus
+// terminal should lose focus
 static bool send_mouse_event(Terminal *term, int c)
 {
   int row = mouse_row, col = mouse_col;
@@ -811,8 +811,10 @@ static bool send_mouse_event(Terminal *term, int c)
     curwin->w_redr_status = true;
     curwin = save_curwin;
     curbuf = curwin->w_buffer;
-    redraw_all_later(NOT_VALID);
-    return false;
+    redraw_win_later(mouse_win, NOT_VALID);
+    invalidate_terminal(term, -1, -1);
+    // Only need to exit focus if the scrolled window is the terminal window
+    return mouse_win == curwin;
   }
 
   ins_char_typebuf(c);
@@ -1033,13 +1035,13 @@ static void redraw(bool restore_cursor)
   showruler(false);
 
   Terminal *term = curbuf->terminal;
-  if (restore_cursor) {
-    ui_cursor_goto(save_row, save_col);
-  } else if (term && is_focused(term)) {
+  if (term && is_focused(term)) {
     curwin->w_wrow = term->cursor.row;
     curwin->w_wcol = term->cursor.col + win_col_off(curwin);
     setcursor();
-  }
+  } else if (restore_cursor) {
+    ui_cursor_goto(save_row, save_col);
+  } 
 
   unblock_autocmds();
   ui_flush();

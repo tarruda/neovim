@@ -2696,13 +2696,15 @@ do_put (
   }
 
   if (curbuf->terminal) {
-    // feed the lines to the terminal
-    for (int i = 0; i < y_size; i++) {
-      if (i) {
-        // terminate the previous line
-        terminal_send(curbuf->terminal, "\n", 1);
+    for (int i = 0; i < count; i++) {
+      // feed the lines to the terminal
+      for (int j = 0; j < y_size; j++) {
+        if (j) {
+          // terminate the previous line
+          terminal_send(curbuf->terminal, "\n", 1);
+        }
+        terminal_send(curbuf->terminal, (char *)y_array[j], STRLEN(y_array[j]));
       }
-      terminal_send(curbuf->terminal, (char *)y_array[i], STRLEN(y_array[i]));
     }
     return;
   }

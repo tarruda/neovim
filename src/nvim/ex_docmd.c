@@ -1513,7 +1513,9 @@ static char_u * do_one_cmd(char_u **cmdlinep,
       errormsg = (char_u *)_(e_sandbox);
       goto doend;
     }
-    if (!MODIFIABLE(curbuf) && (ea.argt & MODIFY)) {
+    if (!MODIFIABLE(curbuf) && (ea.argt & MODIFY)
+        // allow :put in terminals
+        && (!curbuf->terminal || ea.cmdidx != CMD_put)) {
       /* Command not allowed in non-'modifiable' buffer */
       errormsg = (char_u *)_(e_modifiable);
       goto doend;
