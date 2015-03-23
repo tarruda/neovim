@@ -126,7 +126,7 @@ struct terminal {
   int pressed_button;
   // pending width/height
   bool pending_resize;
-  // color palette. this isn't set directly in the vterm instance because 
+  // color palette. this isn't set directly in the vterm instance because
   // the default values are used to obtain the color numbers passed to cterm
   // colors
   RgbValue colors[256];
@@ -219,7 +219,7 @@ Terminal *terminal_open(TerminalOptions opts)
   set_option_value((uint8_t *)"relativenumber", false, NULL, OPT_LOCAL);
   RESET_BINDING(curwin);
   // Apply TermOpen autocmds so the user can configure the terminal
-  apply_autocmds(EVENT_TERMOPEN, NULL, NULL, TRUE, curbuf);
+  apply_autocmds(EVENT_TERMOPEN, NULL, NULL, true, curbuf);
 
   // Configure the scrollback buffer. Try to get the size from:
   //
@@ -1041,7 +1041,7 @@ static void redraw(bool restore_cursor)
     setcursor();
   } else if (restore_cursor) {
     ui_cursor_goto(save_row, save_col);
-  } 
+  }
 
   unblock_autocmds();
   ui_flush();
