@@ -2,12 +2,12 @@ local helpers = require('test.functional.helpers')
 local Screen = require('test.functional.ui.screen')
 local thelpers = require('test.functional.terminal.helpers')
 local feed, clear, nvim = helpers.feed, helpers.clear, helpers.nvim
-local nvim_dir, execute = helpers.nvim_dir, helpers.execute
+local nvim_dir, execute, eq = helpers.nvim_dir, helpers.execute, helpers.eq
 local hide_cursor = thelpers.hide_cursor
 local show_cursor = thelpers.show_cursor
 
 
-describe('cursor', function()
+describe('terminal cursor', function()
   local screen
 
   before_each(function()
@@ -15,28 +15,31 @@ describe('cursor', function()
     screen = thelpers.screen_setup()
   end)
 
-  it('is followed by the screen cursor', function()
-    feed('hello')
+
+  it('moves the screen cursor when focused', function()
+    thelpers.feed_data('testing cursor')
     screen:expect([[
       tty ready                                         |
-      hello{1: }                                            |
+      testing cursor{1: }                                   |
                                                         |
                                                         |
                                                         |
                                                         |
       -- TERMINAL --                                    |
     ]])
+    eq(2, screen._cursor.row)
+    eq(15, screen._cursor.col)
   end)
 
   it('is highlighted when not focused', function()
     feed('<c-\\><c-n>')
     screen:expect([[
       tty ready                                         |
-      {2: }                                                 |
+      {2:^ }                                                 |
                                                         |
                                                         |
                                                         |
-      ^                                                  |
+                                                        |
                                                         |
     ]])
   end)
@@ -99,11 +102,11 @@ describe('cursor', function()
       hide_cursor()
       screen:expect([[
         tty ready                                         |
-                                                          |
-                                                          |
-                                                          |
-                                                          |
         ^                                                  |
+                                                          |
+                                                          |
+                                                          |
+                                                          |
                                                           |
       ]])
       show_cursor()
@@ -159,11 +162,11 @@ describe('cursor with customized highlighting', function()
     feed('<c-\\><c-n>')
     screen:expect([[
       tty ready                                         |
-      {2: }                                                 |
+      {2:^ }                                                 |
                                                         |
                                                         |
                                                         |
-      ^                                                  |
+                                                        |
                                                         |
     ]])
   end)

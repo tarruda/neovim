@@ -1,4 +1,5 @@
 local helpers = require('test.functional.helpers')
+local Screen = require('test.functional.ui.screen')
 local thelpers = require('test.functional.terminal.helpers')
 local feed, clear, nvim = helpers.feed, helpers.clear, helpers.nvim
 local wait, execute, eq = helpers.wait, helpers.execute, helpers.eq
@@ -47,11 +48,11 @@ describe('terminal buffer', function()
       feed('<c-\\><c-n>')
       screen:expect([[
         tty ready                                         |
-        {2: }                                                 |
+        {2:^ }                                                 |
                                                           |
                                                           |
                                                           |
-        ^                                                  |
+                                                          |
                                                           |
       ]])
     end)
@@ -71,36 +72,64 @@ describe('terminal buffer', function()
     feed('<c-\\><c-n>dd')
     screen:expect([[
       tty ready                                         |
-      {2: }                                                 |
+      {2:^ }                                                 |
                                                         |
                                                         |
                                                         |
-      ^                                                  |
+                                                        |
       E21: Cannot make changes, 'modifiable' is off     |
     ]])
   end)
 
   it('sends data to the terminal when the "put" operator is used', function()
-    feed('<c-\\><c-n>gg"ayG')
+    feed('<c-\\><c-n>gg"ayj')
+    execute('let @a = "appended " . @a')
+    feed('"ap"ap')
     screen:expect([[
       ^tty ready                                         |
+      appended tty ready                                |
+      appended tty ready                                |
+      {2: }                                                 |
+                                                        |
+                                                        |
+      :let @a = "appended " . @a                        |
+    ]])
+    -- operator count is also taken into consideration
+    feed('3"ap')
+    screen:expect([[
+      ^tty ready                                         |
+      appended tty ready                                |
+      appended tty ready                                |
+      appended tty ready                                |
+      appended tty ready                                |
+      appended tty ready                                |
+      :let @a = "appended " . @a                        |
+    ]])
+  end)
+
+  it('sends data to the terminal when the ":put" command is used', function()
+    feed('<c-\\><c-n>gg"ayj')
+    execute('let @a = "appended " . @a')
+    execute('put a')
+    screen:expect([[
+      ^tty ready                                         |
+      appended tty ready                                |
       {2: }                                                 |
                                                         |
                                                         |
                                                         |
-                                                        |
-      6 lines yanked                                    |
+      :put a                                            |
     ]])
-    execute('let @a = "appended " . @a')
-    feed('"ap')
+    -- line argument is only used to move the cursor
+    execute('6put a')
     screen:expect([[
-      ^tty ready                                         |
+      tty ready                                         |
       appended tty ready                                |
+      appended tty ready                                |
+      {2: }                                                 |
                                                         |
-                                                        |
-                                                        |
-                                                        |
-      :let @a = "appended " . @a                        |
+      ^                                                  |
+      :6put a                                           |
     ]])
   end)
 
