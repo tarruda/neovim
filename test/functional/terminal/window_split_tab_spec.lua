@@ -22,6 +22,37 @@ describe('terminal', function()
     screen:detach()
   end)
 
+  describe('when the screen is resized', function()
+    it('will forward a resize request to the program', function()
+      screen:try_resize(screen._width + 3, screen._height + 5)
+      screen:expect([[
+        tty ready                                            |
+        rows: 14, cols: 53                                   |
+        {1: }                                                    |
+                                                             |
+                                                             |
+                                                             |
+                                                             |
+                                                             |
+                                                             |
+                                                             |
+                                                             |
+                                                             |
+                                                             |
+                                                             |
+        -- TERMINAL --                                       |
+      ]])
+      screen:try_resize(screen._width - 6, screen._height - 10)
+      screen:expect([[
+        tty ready                                      |
+        rows: 14, cols: 53                             |
+        rows: 4, cols: 47                              |
+        {1: }                                              |
+        -- TERMINAL --                                 |
+      ]])
+    end)
+  end)
+
   describe('split horizontally', function()
     before_each(function()
       nvim('command', 'sp')
