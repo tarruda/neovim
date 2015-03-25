@@ -53,16 +53,26 @@ describe('terminal mouse', function()
     describe('with mouse events enabled by the program', function()
       before_each(function()
         thelpers.enable_mouse()
+        thelpers.feed_data('mouse enabled\n')
+        screen:expect([[
+          line27                                            |
+          line28                                            |
+          line29                                            |
+          line30                                            |
+          mouse enabled                                     |
+          {1: }                                                 |
+          -- TERMINAL --                                    |
+        ]])
       end)
 
       it('will forward mouse clicks to the program', function()
         feed('<LeftMouse><1,2>')
         screen:expect([[
-          line26                                            |
           line27                                            |
           line28                                            |
           line29                                            |
           line30                                            |
+          mouse enabled                                     |
            "#{1: }                                              |
           -- TERMINAL --                                    |
         ]])
@@ -71,11 +81,11 @@ describe('terminal mouse', function()
       it('will forward mouse scroll to the program', function()
         feed('<MouseDown><0,0>')
         screen:expect([[
-          line26                                            |
           line27                                            |
           line28                                            |
           line29                                            |
           line30                                            |
+          mouse enabled                                     |
           `!!{1: }                                              |
           -- TERMINAL --                                    |
         ]])
