@@ -871,6 +871,11 @@ TermChanged			After the value of 'term' has changed.  Useful
 				for re-loading the syntax file to update the
 				colors, fonts and other terminal-dependent
 				settings.  Executed for all loaded buffers.
+						{Nvim}  *TermOpen*
+TermOpen			When a terminal buffer is starting. This can
+				be used to configure the terminal emulator by
+				setting buffer variables. See
+				|nvim-terminal-emulator| for details.
 							*TermResponse*
 TermResponse			After the response to |t_RV| is received from
 				the terminal.  The value of |v:termresponse|
