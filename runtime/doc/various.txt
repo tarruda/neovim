@@ -225,15 +225,14 @@ g8			Print the hex values of the bytes used in the
 :sh[ell]		Removed. |vim-differences| {Nvim}
 
 						  *:term* *:terminal*
-:term[inal][!] {cmd}	Spawns {command} using the shell in a new terminal
-			buffer. This is command is equivalent to: >
+:term[inal][!] {cmd}	Spawns {command} using the current value of 'shell'
+			in a new terminal buffer.  This is equivalent to: >
 
-			      enew | call termopen('{cmd}') | startinsert
-<                       
-			Like |enew|, it will fail if the current  buffer is
-			modified but can be forced with "!".
-			See |termopen()| and |nvim-terminal-emulator| for
-			more information.
+			      :enew | call termopen('{cmd}') | startinsert
+<
+			Like |:enew|, it will fail if the current buffer is
+			modified, but can be forced with "!".  See |termopen()|
+			and |nvim-terminal-emulator| for more information.
 
 							*:!cmd* *:!* *E34*
 :!{cmd}			Execute {cmd} with the shell. See also 'shell'.
