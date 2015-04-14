@@ -37,7 +37,6 @@
 /// @param str The command str
 /// @param[out] err Details of an error that may have occurred
 void vim_command(String str, Error *err)
-  FUNC_ATTR_DEFERRED
 {
   // Run the command
   try_start();
@@ -54,7 +53,6 @@ void vim_command(String str, Error *err)
 /// @see feedkeys()
 /// @see vim_strsave_escape_csi
 void vim_feedkeys(String keys, String mode, Boolean escape_csi)
-  FUNC_ATTR_DEFERRED
 {
   bool remap = true;
   bool insert = false;
@@ -100,6 +98,7 @@ void vim_feedkeys(String keys, String mode, Boolean escape_csi)
 /// @return The number of bytes actually written, which can be lower than
 ///         requested if the buffer becomes full.
 Integer vim_input(String keys)
+  FUNC_ATTR_IO
 {
   return (Integer)input_enqueue(keys);
 }
@@ -143,7 +142,6 @@ String vim_command_output(String str, Error *err)
 /// @param[out] err Details of an error that may have occurred
 /// @return The expanded object
 Object vim_eval(String str, Error *err)
-  FUNC_ATTR_DEFERRED
 {
   Object rv = OBJECT_INIT;
   // Evaluate the expression
@@ -262,7 +260,6 @@ String vim_get_current_line(Error *err)
 /// @param line The line contents
 /// @param[out] err Details of an error that may have occurred
 void vim_set_current_line(String line, Error *err)
-  FUNC_ATTR_DEFERRED
 {
   buffer_set_line(curbuf->handle, curwin->w_cursor.lnum - 1, line, err);
 }
@@ -271,7 +268,6 @@ void vim_set_current_line(String line, Error *err)
 ///
 /// @param[out] err Details of an error that may have occurred
 void vim_del_current_line(Error *err)
-  FUNC_ATTR_DEFERRED
 {
   buffer_del_line(curbuf->handle, curwin->w_cursor.lnum - 1, err);
 }
@@ -293,7 +289,6 @@ Object vim_get_var(String name, Error *err)
 /// @param[out] err Details of an error that may have occurred
 /// @return the old value if any
 Object vim_set_var(String name, Object value, Error *err)
-  FUNC_ATTR_DEFERRED
 {
   return dict_set_value(&globvardict, name, value, err);
 }
@@ -324,7 +319,6 @@ Object vim_get_option(String name, Error *err)
 /// @param value The new option value
 /// @param[out] err Details of an error that may have occurred
 void vim_set_option(String name, Object value, Error *err)
-  FUNC_ATTR_DEFERRED
 {
   set_option_to(NULL, SREQ_GLOBAL, name, value, err);
 }
@@ -333,7 +327,6 @@ void vim_set_option(String name, Object value, Error *err)
 ///
 /// @param str The message
 void vim_out_write(String str)
-  FUNC_ATTR_DEFERRED
 {
   write_msg(str, false);
 }
@@ -342,7 +335,6 @@ void vim_out_write(String str)
 ///
 /// @param str The message
 void vim_err_write(String str)
-  FUNC_ATTR_DEFERRED
 {
   write_msg(str, true);
 }
@@ -352,7 +344,6 @@ void vim_err_write(String str)
 ///
 /// @param str The message
 void vim_report_error(String str)
-  FUNC_ATTR_DEFERRED
 {
   vim_err_write(str);
   vim_err_write((String) {.data = "\n", .size = 1});
@@ -392,7 +383,6 @@ Buffer vim_get_current_buffer(void)
 /// @param id The buffer handle
 /// @param[out] err Details of an error that may have occurred
 void vim_set_current_buffer(Buffer buffer, Error *err)
-  FUNC_ATTR_DEFERRED
 {
   buf_T *buf = find_buffer_by_handle(buffer, err);
 
@@ -443,7 +433,6 @@ Window vim_get_current_window(void)
 ///
 /// @param handle The window handle
 void vim_set_current_window(Window window, Error *err)
-  FUNC_ATTR_DEFERRED
 {
   win_T *win = find_window_by_handle(window, err);
 
@@ -495,7 +484,6 @@ Tabpage vim_get_current_tabpage(void)
 /// @param handle The tab page handle
 /// @param[out] err Details of an error that may have occurred
 void vim_set_current_tabpage(Tabpage tabpage, Error *err)
-  FUNC_ATTR_DEFERRED
 {
   tabpage_T *tp = find_tab_by_handle(tabpage, err);
 

@@ -33,7 +33,9 @@ typedef enum {
 static RStream *read_stream = NULL;
 static RBuffer *read_buffer = NULL, *input_buffer = NULL;
 static bool input_eof = false;
+static bool interrupted = false;
 static int global_fd = 0;
+static uv_mutex_t input_mutex;
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "os/input.c.generated.h"
@@ -43,6 +45,7 @@ static int global_fd = 0;
 
 void input_init(void)
 {
+  uv_mutex_init(&input_mutex);
   input_buffer = rbuffer_new(INPUT_BUFFER_SIZE + MAX_KEY_CODE_LEN);
 }
 
@@ -60,7 +63,7 @@ void input_start(int fd)
 
   global_fd = fd;
   read_buffer = rbuffer_new(READ_BUFFER_SIZE);
-  read_stream = rstream_new(read_cb, read_buffer, NULL);
+  read_stream = rstream_new(read_cb, read_buffer, true, NULL);
   rstream_set_file(read_stream, fd);
   rstream_start(read_stream);
 }
@@ -76,11 +79,23 @@ void input_stop(void)
   read_stream = NULL;
 }
 
+static int read_input(uint8_t *buf, int maxlen)
+{
+  int rv = 0;
+  uv_mutex_lock(&input_mutex);
+  if (rbuffer_size(input_buffer)) {
+    rv = (int)rbuffer_read(input_buffer, (char *)buf, (size_t)maxlen);
+  }
+  uv_mutex_unlock(&input_mutex);
+  return rv;
+}
+
 // Low level input function
 int os_inchar(uint8_t *buf, int maxlen, int ms, int tb_change_cnt)
 {
-  if (rbuffer_size(input_buffer)) {
-    return (int)rbuffer_read(input_buffer, (char *)buf, (size_t)maxlen);
+  int rv;
+  if ((rv = read_input(buf, maxlen))) {
+    return rv;
   }
 
   InbufPollResult result;
@@ -108,14 +123,12 @@ int os_inchar(uint8_t *buf, int maxlen, int ms, int tb_change_cnt)
     return 0;
   }
 
-  if (rbuffer_size(input_buffer)) {
-    // Safe to convert rbuffer_read to int, it will never overflow since we use
-    // relatively small buffers.
-    return (int)rbuffer_read(input_buffer, (char *)buf, (size_t)maxlen);
+  if ((rv = read_input(buf, maxlen))) {
+    return rv;
   }
 
-  // If there are deferred events, return the keys directly
-  if (event_has_deferred()) {
+  // If there are unsafe events, return the keys directly
+  if (event_has_pending()) {
     return push_event_key(buf, maxlen);
   }
 
@@ -135,9 +148,10 @@ bool os_char_avail(void)
 // Check for CTRL-C typed by reading all available characters.
 void os_breakcheck(void)
 {
-  if (!disable_breakcheck && !got_int) {
-    event_poll(0);
-  }
+  uv_mutex_lock(&input_mutex);
+  got_int = interrupted;
+  interrupted = false;
+  uv_mutex_unlock(&input_mutex);
 }
 
 /// Test whether a file descriptor refers to a terminal.
@@ -152,6 +166,7 @@ bool os_isatty(int fd)
 size_t input_enqueue(String keys)
 {
   char *ptr = keys.data, *end = ptr + keys.size;
+  uv_mutex_lock(&input_mutex);
 
   while (rbuffer_space(input_buffer) >= 6 && ptr < end) {
     uint8_t buf[6] = {0};
@@ -189,6 +204,7 @@ size_t input_enqueue(String keys)
 
   size_t rv = (size_t)(ptr - keys.data);
   process_interrupts();
+  uv_mutex_unlock(&input_mutex);
   return rv;
 }
 
@@ -285,7 +301,7 @@ static bool input_poll(int ms)
     prof_inchar_enter();
   }
 
-  event_poll_until(ms, input_ready() || input_eof);
+  event_poll_until(ms, input_ready() || input_eof, NULL);
 
   if (do_profiling == PROF_YES && ms) {
     prof_inchar_exit();
@@ -331,15 +347,17 @@ static void process_interrupts(void)
   size_t consume_count = 0;
   RBUFFER_EACH_REVERSE(input_buffer, c, i) {
     if ((uint8_t)c == 3) {
-      got_int = true;
+      interrupted = true;
       consume_count = i;
       break;
     }
   }
 
-  if (got_int && consume_count) {
+  if (interrupted && consume_count) {
     // Remove everything typed before the CTRL-C
     rbuffer_consumed(input_buffer, consume_count);
+    // push a "dummy" event to break out of event_poll
+    event_push(NULL, NULL);
   }
 }
 
@@ -360,9 +378,16 @@ static int push_event_key(uint8_t *buf, int maxlen)
 // Check if there's pending input
 static bool input_ready(void)
 {
-  return typebuf_was_filled ||                 // API call filled typeahead
-         rbuffer_size(input_buffer) ||         // Input buffer filled
-         event_has_deferred();                 // Events must be processed
+  if (typebuf_was_filled) {
+    // API call filled typeahead
+    return true;
+  }
+
+  bool received_input;
+  uv_mutex_lock(&input_mutex);
+  received_input = rbuffer_size(input_buffer) != 0;
+  uv_mutex_unlock(&input_mutex);
+  return received_input || event_has_pending();
 }
 
 // Exit because of an input read error.

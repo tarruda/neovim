@@ -487,12 +487,7 @@ normal_cmd (
   /*
    * Get the command character from the user.
    */
-  event_enable_deferred();
-  c = safe_vgetc();
-  event_disable_deferred();
-
-  if (c == K_EVENT) {
-    event_process();
+  if ((c = safe_vgetc()) == K_EVENT) {
     return;
   }
 

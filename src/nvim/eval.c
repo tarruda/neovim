@@ -470,7 +470,6 @@ typedef struct {
   list_T *received;
   int status;
 } JobEvent;
-static int disable_job_defer = 0;
 
 /*
  * Initialize the global and v: variables.
@@ -10947,15 +10946,6 @@ static void f_jobwait(typval_T *argvars, typval_T *rettv)
   list_T *rv = list_alloc();
 
   ui_busy_start();
-  // disable breakchecks, which could result in job callbacks being executed
-  // at unexpected places
-  disable_breakcheck++;
-  // disable job event deferring so the callbacks are processed while waiting.
-  if (!disable_job_defer++) {
-    // process any pending job events in the deferred queue, but only do this if
-    // deferred is not disabled(at the top-level `jobwait()` call)
-    event_process();
-  }
   // For each item in the input list append an integer to the output list. -3
   // is used to represent an invalid job id, -2 is for a interrupted job and
   // -1 for jobs that were skipped or timed out.
@@ -11014,7 +11004,7 @@ static void f_jobwait(typval_T *argvars, typval_T *rettv)
   }
 
   // poll to ensure any pending callbacks from the last job are invoked
-  event_poll(0);
+  event_poll(NULL, -1, NULL);
 
   for (listitem_T *arg = args->lv_first; arg != NULL; arg = arg->li_next) {
     Job *job = NULL;
@@ -11028,8 +11018,6 @@ static void f_jobwait(typval_T *argvars, typval_T *rettv)
     // job exits
     data->status_ptr = NULL;
   }
-  disable_job_defer--;
-  disable_breakcheck--;
   ui_busy_stop();
 
   rv->lv_refcount++;
@@ -20335,10 +20323,7 @@ static inline void push_job_event(Job *job, ufunc_T *callback,
   event_data->data = job_data(job);
   event_data->callback = callback;
   event_data->type = type;
-  event_push((Event) {
-    .handler = on_job_event,
-    .data = event_data
-  }, !disable_job_defer);
+  event_push(on_job_event, event_data);
 }
 
 static void on_job_stdout(RStream *rstream, RBuffer *buf, void *job, bool eof)
@@ -20423,9 +20408,9 @@ static void term_job_data_decref(TerminalJobData *data)
   }
 }
 
-static void on_job_event(Event event)
+static void on_job_event(void *data)
 {
-  JobEvent *ev = event.data;
+  JobEvent *ev = data;
 
   if (!ev->callback) {
     goto end;

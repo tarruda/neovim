@@ -14,9 +14,9 @@
 #include "nvim/os/signal.h"
 #include "nvim/os/event.h"
 
-static uv_signal_t spipe, shup, squit, sterm;
+static Signal spipe, shup, squit, sterm;
 #ifdef SIGPWR
-static uv_signal_t spwr;
+static Signal spwr;
 #endif
 
 static bool rejecting_deadly;
@@ -27,17 +27,17 @@ static bool rejecting_deadly;
 
 void signal_init(void)
 {
-  uv_signal_init(uv_default_loop(), &spipe);
-  uv_signal_init(uv_default_loop(), &shup);
-  uv_signal_init(uv_default_loop(), &squit);
-  uv_signal_init(uv_default_loop(), &sterm);
-  uv_signal_start(&spipe, signal_cb, SIGPIPE);
-  uv_signal_start(&shup, signal_cb, SIGHUP);
-  uv_signal_start(&squit, signal_cb, SIGQUIT);
-  uv_signal_start(&sterm, signal_cb, SIGTERM);
+  event_signal_init(&spipe);
+  event_signal_init(&shup);
+  event_signal_init(&squit);
+  event_signal_init(&sterm);
+  event_signal_start(&spipe, signal_cb, SIGPIPE);
+  event_signal_start(&shup, signal_cb, SIGHUP);
+  event_signal_start(&squit, signal_cb, SIGQUIT);
+  event_signal_start(&sterm, signal_cb, SIGTERM);
 #ifdef SIGPWR
-  uv_signal_init(uv_default_loop(), &spwr);
-  uv_signal_start(&spwr, signal_cb, SIGPWR);
+  event_signal_init(&spwr);
+  event_signal_start(&spwr, signal_cb, SIGPWR);
 #endif
 }
 
@@ -55,12 +55,12 @@ void signal_teardown(void)
 
 void signal_stop(void)
 {
-  uv_signal_stop(&spipe);
-  uv_signal_stop(&shup);
-  uv_signal_stop(&squit);
-  uv_signal_stop(&sterm);
+  event_signal_stop(&spipe);
+  event_signal_stop(&shup);
+  event_signal_stop(&squit);
+  event_signal_stop(&sterm);
 #ifdef SIGPWR
-  uv_signal_stop(&spwr);
+  event_signal_stop(&spwr);
 #endif
 }
 
@@ -111,18 +111,9 @@ static void deadly_signal(int signum)
   preserve_exit();
 }
 
-static void signal_cb(uv_signal_t *handle, int signum)
+static void signal_cb(int signum, void *data)
 {
   assert(signum >= 0);
-  event_push((Event) {
-    .handler = on_signal_event,
-    .data = (void *)(uintptr_t)signum
-  }, false);
-}
-
-static void on_signal_event(Event event)
-{
-  int signum = (int)(uintptr_t)event.data;
 
   switch (signum) {
 #ifdef SIGPWR
@@ -147,4 +138,3 @@ static void on_signal_event(Event event)
       break;
   }
 }
-

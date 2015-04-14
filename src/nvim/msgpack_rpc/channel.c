@@ -58,6 +58,7 @@ typedef struct {
   uint64_t next_request_id;
   kvec_t(ChannelCallFrame *) call_stack;
   kvec_t(WBuffer *) delayed_notifications;
+  uv_mutex_t mutex;
 } Channel;
 
 typedef struct {
@@ -65,6 +66,8 @@ typedef struct {
   MsgpackRpcRequestHandler handler;
   Array args;
   uint64_t request_id;
+  Error err;
+  Object result;
 } RequestEvent;
 
 static uint64_t next_id = 1;
@@ -123,6 +126,7 @@ uint64_t channel_from_job(char **argv)
   opts.stdout_cb = job_out;
   opts.stderr_cb = job_err;
   opts.exit_cb = job_exit;
+  opts.async = true;
   channel->data.job = job_start(opts, &status);
 
   if (status <= 0) {
@@ -148,6 +152,7 @@ void channel_from_stream(uv_stream_t *stream)
   // read stream
   channel->data.streams.read = rstream_new(parse_msgpack,
                                            rbuffer_new(CHANNEL_BUFFER_SIZE),
+                                           true,
                                            channel);
   rstream_set_stream(channel->data.streams.read, stream);
   rstream_start(channel->data.streams.read);
@@ -220,7 +225,7 @@ Object channel_send_call(uint64_t id,
   ChannelCallFrame frame = {request_id, false, false, NIL};
   kv_push(ChannelCallFrame *, channel->call_stack, &frame);
   channel->pending_requests++;
-  event_poll_until(-1, frame.returned);
+  event_poll_until(-1, frame.returned, NULL);
   (void)kv_pop(channel->call_stack);
   channel->pending_requests--;
 
@@ -319,6 +324,7 @@ static void channel_from_stdio(void)
   // read stream
   channel->data.streams.read = rstream_new(parse_msgpack,
                                            rbuffer_new(CHANNEL_BUFFER_SIZE),
+                                           true,
                                            channel);
   rstream_set_file(channel->data.streams.read, 0);
   rstream_start(channel->data.streams.read);
@@ -403,9 +409,8 @@ static void parse_msgpack(RStream *rstream, RBuffer *rbuf, void *data, bool eof)
   }
 
   if (result == MSGPACK_UNPACK_NOMEM_ERROR) {
-    mch_errmsg(e_outofmem);
-    mch_errmsg("\n");
-    decref(channel);
+    ELOG("%s", e_outofmem);
+    event_push(decref_sync, channel);
     preserve_exit();
   }
 
@@ -422,7 +427,7 @@ static void parse_msgpack(RStream *rstream, RBuffer *rbuf, void *data, bool eof)
   }
 
 end:
-  decref(channel);
+  event_push(decref_sync, channel);
 }
 
 static void handle_request(Channel *channel, msgpack_object *request)
@@ -458,51 +463,62 @@ static void handle_request(Channel *channel, msgpack_object *request)
                                           method->via.bin.size);
   } else {
     handler.fn = msgpack_rpc_handle_missing_method;
-    handler.defer = false;
+    handler.async = true;
   }
 
   Array args = ARRAY_DICT_INIT;
   if (!msgpack_rpc_to_array(msgpack_rpc_args(request), &args)) {
     handler.fn = msgpack_rpc_handle_invalid_arguments;
-    handler.defer = false;
+    handler.async = true;
   }
 
-  bool defer = (!kv_size(channel->call_stack) && handler.defer);
   RequestEvent *event_data = xmalloc(sizeof(RequestEvent));
   event_data->channel = channel;
   event_data->handler = handler;
   event_data->args = args;
   event_data->request_id = request_id;
+  event_data->err = (Error)ERROR_INIT;
   incref(channel);
-  event_push((Event) {
-    .handler = on_request_event,
-    .data = event_data
-  }, defer);
+  if (handler.async) {
+    on_request_event(event_data);
+  } else {
+    event_push(on_request_event, event_data);
+  }
 }
 
-static void on_request_event(Event event)
+static void on_request_event(void *data)
 {
-  RequestEvent *e = event.data;
-  Channel *channel = e->channel;
+  RequestEvent *e = data;
   MsgpackRpcRequestHandler handler = e->handler;
-  Array args = e->args;
+  e->result = handler.fn(e->channel->id, e->request_id, e->args, &e->err);
+
+  if (handler.async) {
+    // respond in the main thread
+    event_push(send_response, e);
+  } else {
+    send_response(e);
+  }
+}
+
+static void send_response(void *data)
+{
+  RequestEvent *e = data;
+  Channel *channel = e->channel;
   uint64_t request_id = e->request_id;
-  Error error = ERROR_INIT;
-  Object result = handler.fn(channel->id, request_id, args, &error);
   if (request_id != NO_RESPONSE) {
     // send the response
     msgpack_packer response;
     msgpack_packer_init(&response, &out_buffer, msgpack_sbuffer_write);
     channel_write(channel, serialize_response(channel->id,
                                               request_id,
-                                              &error,
-                                              result,
+                                              &e->err,
+                                              e->result,
                                               &out_buffer));
   } else {
-    api_free_object(result);
+    api_free_object(e->result);
   }
   // All arguments were freed already, but we still need to free the array
-  xfree(args.items);
+  xfree(e->args.items);
   decref(channel);
   xfree(e);
 }
@@ -648,16 +664,16 @@ static void close_channel(Channel *channel)
     if (handle) {
       uv_close(handle, close_cb);
     } else {
-      event_push((Event) { .handler = on_stdio_close, .data = channel }, false);
+      event_push(on_stdio_close, channel);
     }
   }
 
   decref(channel);
 }
 
-static void on_stdio_close(Event e)
+static void on_stdio_close(void *data)
 {
-  decref(e.data);
+  decref(data);
 
   if (!exiting) {
     mch_exit(0);
@@ -809,6 +825,11 @@ static void decref(Channel *channel)
   }
 }
 
+static void decref_sync(void *data)
+{
+  decref(data);
+}
+
 #if MIN_LOG_LEVEL <= DEBUG_LOG_LEVEL
 #define REQ "[request]      "
 #define RES "[response]     "
@@ -822,6 +843,7 @@ static void log_server_msg(uint64_t channel_id,
   msgpack_unpack_next(&unpacked, packed->data, packed->size, NULL);
   uint64_t type = unpacked.data.via.array.ptr[0].via.u64;
   DLOGN("[msgpack-rpc] nvim -> client(%" PRIu64 ") ", channel_id);
+  log_lock();
   FILE *f = open_log_file();
   fprintf(f, type ? (type == 1 ? RES : NOT) : REQ);
   log_msg_close(f, unpacked.data);
@@ -833,6 +855,7 @@ static void log_client_msg(uint64_t channel_id,
                            msgpack_object msg)
 {
   DLOGN("[msgpack-rpc] client(%" PRIu64 ") -> nvim ", channel_id);
+  log_lock();
   FILE *f = open_log_file();
   fprintf(f, is_request ? REQ : RES);
   log_msg_close(f, msg);
@@ -844,6 +867,7 @@ static void log_msg_close(FILE *f, msgpack_object msg)
   fputc('\n', f);
   fflush(f);
   fclose(f);
+  log_unlock();
 }
 #endif
 

@@ -10,6 +10,7 @@
 
 struct term_input {
   int in_fd;
+  int timeout;
   bool paste_enabled;
   TermKey *tk;
   uv_timer_t timer_handle;
@@ -143,7 +144,7 @@ static void tk_getkeys(TermInput *input, bool force)
     return;
   }
 
-  int ms  = get_key_code_timeout();
+  int ms  = input->timeout;
 
   if (ms > 0) {
     // Stop the current timer if already running
@@ -269,6 +270,13 @@ static TermInput *term_input_new(void)
   TermInput *rv = xmalloc(sizeof(TermInput));
   rv->paste_enabled = false;
   rv->in_fd = 0;
+  // FIXME(tarruda): Allow the timeout to be changed after initialization
+  rv->timeout = get_key_code_timeout();
+  // Set the pastetoggle option to a special key that will be sent when
+  // \e[20{0,1}~/ are received
+  Error err = ERROR_INIT;
+  vim_set_option(cstr_as_string("pastetoggle"),
+      STRING_OBJ(cstr_as_string(PASTETOGGLE_KEY)), &err);
 
   const char *term = os_getenv("TERM");
   if (!term) {
@@ -279,17 +287,12 @@ static TermInput *term_input_new(void)
   termkey_set_canonflags(rv->tk, curflags | TERMKEY_CANON_DELBS);
   // setup input handle
   rv->read_buffer = rbuffer_new(0xfff);
-  rv->read_stream = rstream_new(read_cb, rv->read_buffer, rv);
+  rv->read_stream = rstream_new(read_cb, rv->read_buffer, true, rv);
   rstream_set_file(rv->read_stream, rv->in_fd);
   rstream_start(rv->read_stream);
   // initialize a timer handle for handling ESC with libtermkey
   uv_timer_init(uv_default_loop(), &rv->timer_handle);
   rv->timer_handle.data = rv;
-  // Set the pastetoggle option to a special key that will be sent when
-  // \e[20{0,1}~/ are received
-  Error err = ERROR_INIT;
-  vim_set_option(cstr_as_string("pastetoggle"),
-      STRING_OBJ(cstr_as_string(PASTETOGGLE_KEY)), &err);
   return rv;
 }
 
@@ -300,7 +303,6 @@ static void term_input_destroy(TermInput *input)
   rstream_free(input->read_stream);
   uv_close((uv_handle_t *)&input->timer_handle, NULL);
   termkey_destroy(input->tk);
-  event_poll(0);  // Run once to remove references to input/timer handles
   xfree(input);
 }
 

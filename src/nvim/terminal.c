@@ -40,6 +40,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include <uv.h>
 #include <vterm.h>
 
 #include "nvim/vim.h"
@@ -80,7 +81,7 @@
 // of data.
 #define REFRESH_DELAY 10
 
-static uv_timer_t refresh_timer;
+static Timer refresh_timer;
 static bool refresh_pending = false;
 
 typedef struct {
@@ -150,7 +151,7 @@ static VTermColor default_vt_bg_rgb;
 void terminal_init(void)
 {
   invalidated_terminals = pmap_new(ptr_t)();
-  uv_timer_init(uv_default_loop(), &refresh_timer);
+  event_timer_init(&refresh_timer);
 
   // initialize a rgb->color index map for cterm attributes(VTermScreenCell
   // only has RGB information and we need color indexes for terminal UIs)
@@ -175,8 +176,7 @@ void terminal_init(void)
 
 void terminal_teardown(void)
 {
-  uv_timer_stop(&refresh_timer);
-  uv_close((uv_handle_t *)&refresh_timer, NULL);
+  event_timer_stop(&refresh_timer);
   pmap_free(ptr_t)(invalidated_terminals);
   map_free(int, int)(color_indexes);
 }
@@ -323,7 +323,7 @@ void terminal_resize(Terminal *term, uint16_t width, uint16_t height)
   invalidate_terminal(term, -1, -1);
 }
 
-void terminal_enter(bool process_deferred)
+void terminal_enter(void)
 {
   Terminal *term = curbuf->terminal;
   assert(term && "should only be called when curbuf has a terminal");
@@ -352,15 +352,7 @@ void terminal_enter(bool process_deferred)
   bool got_bs = false;  // True if the last input was <C-\>
 
   while (term->buf == curbuf) {
-    if (process_deferred) {
-      event_enable_deferred();
-    }
-
     c = safe_vgetc();
-
-    if (process_deferred) {
-      event_disable_deferred();
-    }
 
     switch (c) {
       case K_LEFTMOUSE:
@@ -380,7 +372,6 @@ void terminal_enter(bool process_deferred)
         break;
 
       case K_EVENT:
-        event_process();
         break;
 
       case Ctrl_N:
@@ -876,21 +867,21 @@ static void invalidate_terminal(Terminal *term, int start_row, int end_row)
 
   pmap_put(ptr_t)(invalidated_terminals, term, NULL);
   if (!refresh_pending) {
-    uv_timer_start(&refresh_timer, refresh_timer_cb, REFRESH_DELAY, 0);
+    event_timer_start(&refresh_timer, refresh_timer_cb, REFRESH_DELAY, 0, NULL);
     refresh_pending = true;
   }
 }
 
 // libuv timer callback. This will enqueue on_refresh to be processed as an
 // event.
-static void refresh_timer_cb(uv_timer_t *handle)
+static void refresh_timer_cb(void *data)
 {
-  event_push((Event) {.handler = on_refresh}, false);
+  on_refresh(NULL);
   refresh_pending = false;
 }
 
 // Refresh all invalidated terminals
-static void on_refresh(Event event)
+static void on_refresh(void *data)
 {
   if (exiting) {
     // bad things can happen if we redraw when exiting, and there's no need to

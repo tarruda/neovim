@@ -200,21 +200,16 @@ static void tui_stop(UI *ui)
   xfree(ui);
 }
 
-static void try_resize(Event ev)
+static void try_resize(void *data)
 {
-  UI *ui = ev.data;
+  UI *ui = data;
   update_size(ui);
   ui_refresh();
 }
 
 static void sigwinch_cb(uv_signal_t *handle, int signum)
 {
-  // Queue the event because resizing can result in recursive event_poll calls
-  // FIXME(blueyed): TUI does not resize properly when not deferred. Why? #2322
-  event_push((Event) {
-    .data = handle->data,
-    .handler = try_resize
-  }, true);
+  event_push(try_resize, handle->data);
 }
 
 static bool attrs_differ(HlAttrs a1, HlAttrs a2)

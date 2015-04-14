@@ -13,7 +13,6 @@
 #include "nvim/os/wstream.h"
 #include "nvim/os/wstream_defs.h"
 #include "nvim/os/event.h"
-#include "nvim/os/event_defs.h"
 #include "nvim/os/time.h"
 #include "nvim/vim.h"
 #include "nvim/memory.h"
@@ -78,7 +77,7 @@ void job_teardown(void)
   }
 
   // Wait until all jobs are closed
-  event_poll_until(-1, !stop_requests);
+  event_poll_until(-1, !stop_requests, NULL);
   uv_signal_stop(&schld);
   uv_close((uv_handle_t *)&schld, NULL);
   // Close the timer
@@ -152,7 +151,7 @@ Job *job_start(JobOptions opts, int *status)
       uv_close((uv_handle_t *)job->proc_stderr, close_cb);
     }
     process_close(job);
-    event_poll(0);
+    event_poll(NULL, 0, NULL);
     // Manually invoke the close_cb to free the job resources
     *status = -1;
     return NULL;
@@ -165,13 +164,15 @@ Job *job_start(JobOptions opts, int *status)
 
   // Start the readable streams
   if (opts.stdout_cb) {
-    job->out = rstream_new(read_cb, rbuffer_new(JOB_BUFFER_SIZE), job);
+    job->out = rstream_new(read_cb, rbuffer_new(JOB_BUFFER_SIZE), opts.async,
+        job);
     rstream_set_stream(job->out, job->proc_stdout);
     rstream_start(job->out);
   }
 
   if (opts.stderr_cb) {
-    job->err = rstream_new(read_cb, rbuffer_new(JOB_BUFFER_SIZE), job);
+    job->err = rstream_new(read_cb, rbuffer_new(JOB_BUFFER_SIZE), opts.async,
+        job);
     rstream_set_stream(job->err, job->proc_stderr);
     rstream_start(job->err);
   }
@@ -227,6 +228,12 @@ void job_stop(Job *job)
   }
 }
 
+static bool is_job_event(void *event_data, void *filter_data)
+{
+  Job *job = filter_data;
+  return job == event_data || job->out == event_data || job->err == event_data;
+}
+
 /// job_wait - synchronously wait for a job to finish
 ///
 /// @param job The job instance
@@ -241,6 +248,10 @@ int job_wait(Job *job, int ms) FUNC_ATTR_NONNULL_ALL
   // The default status is -1, which represents a timeout
   int status = -1;
   bool interrupted = false;
+  EventFilter filter = {
+    .data = job,
+    .predicate = is_job_event
+  };
 
   // Increase refcount to stop the job from being freed before we have a
   // chance to get the status.
@@ -248,7 +259,8 @@ int job_wait(Job *job, int ms) FUNC_ATTR_NONNULL_ALL
   event_poll_until(ms,
       // Until...
       got_int ||                // interrupted by the user
-      job->refcount == 1);  // job exited
+      job->refcount == 1,       // job exited
+      &filter);
 
   // we'll assume that a user frantically hitting interrupt doesn't like
   // the current job. Signal that it has to be killed.
@@ -259,9 +271,9 @@ int job_wait(Job *job, int ms) FUNC_ATTR_NONNULL_ALL
     if (ms == -1) {
       // We can only return, if all streams/handles are closed and the job
       // exited.
-      event_poll_until(-1, job->refcount == 1);
+      event_poll_until(-1, job->refcount == 1, &filter);
     } else {
-      event_poll(0);
+      event_poll(NULL, 0, &filter);
     }
   }
 
@@ -426,10 +438,9 @@ static void close_cb(uv_handle_t *handle)
   job_decref(handle_get_job(handle));
 }
 
-static void job_exited(Event event)
+static void job_exited(void *data)
 {
-  Job *job = event.data;
-  process_close(job);
+  process_close(data);
 }
 
 static void chld_handler(uv_signal_t *handle, int signum)
@@ -463,7 +474,7 @@ static void chld_handler(uv_signal_t *handle, int signum)
         // don't enqueue more events when exiting
         process_close(job);
       } else {
-        event_push((Event) {.handler = job_exited, .data = job}, false);
+        event_push(job_exited, job);
       }
       break;
     }

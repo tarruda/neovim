@@ -45,6 +45,8 @@ typedef struct {
   // Value for the $TERM environment variable. A default value of "ansi" is
   // assumed if NULL
   char *term_name;
+  // If true, the job callbacks will be invoked by the IO thread
+  bool async;
 } JobOptions;
 
 #define JOB_OPTIONS_INIT ((JobOptions) {                     \
@@ -58,6 +60,7 @@ typedef struct {
     .pty = false,                                            \
     .width = 80,                                             \
     .height = 24,                                            \
-    .term_name = NULL                                        \
+    .term_name = NULL,                                       \
+    .async = false,                                          \
     })
 #endif  // NVIM_OS_JOB_DEFS_H

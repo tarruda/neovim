@@ -8,6 +8,7 @@
 #include "nvim/os/uv_helpers.h"
 #include "nvim/os/wstream.h"
 #include "nvim/os/wstream_defs.h"
+#include "nvim/os/event.h"
 #include "nvim/vim.h"
 #include "nvim/memory.h"
 
@@ -22,6 +23,7 @@ struct wstream {
   // Number of pending requests
   size_t pending_reqs;
   bool freed, free_handle;
+  uv_file fd;
   // (optional) Write callback and data
   wstream_cb cb;
   void *data;
@@ -37,7 +39,9 @@ typedef struct {
   WStream *wstream;
   WBuffer *buffer;
   uv_write_t uv_req;
+  int status;
 } WRequest;
+
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "os/wstream.c.generated.h"
@@ -70,17 +74,9 @@ WStream * wstream_new(size_t maxmem)
 /// Frees all memory allocated for a WStream instance
 ///
 /// @param wstream The `WStream` instance
-void wstream_free(WStream *wstream) {
-  if (!wstream->pending_reqs) {
-    if (wstream->free_handle) {
-      uv_close((uv_handle_t *)wstream->stream, close_cb);
-    } else {
-      handle_set_wstream((uv_handle_t *)wstream->stream, NULL);
-      xfree(wstream);
-    }
-  } else {
-    wstream->freed = true;
-  }
+void wstream_free(WStream *wstream)
+{
+  event_call_async(wstream_free_async, 1, wstream);
 }
 
 /// Sets the underlying `uv_stream_t` instance
@@ -89,8 +85,7 @@ void wstream_free(WStream *wstream) {
 /// @param stream The new `uv_stream_t` instance
 void wstream_set_stream(WStream *wstream, uv_stream_t *stream)
 {
-  handle_set_wstream((uv_handle_t *)stream, wstream);
-  wstream->stream = stream;
+  event_call_async(wstream_set_stream_async, 2, wstream, stream);
 }
 
 /// Sets the underlying file descriptor that will be written to. Only pipes
@@ -100,14 +95,7 @@ void wstream_set_stream(WStream *wstream, uv_stream_t *stream)
 /// @param file The file descriptor
 void wstream_set_file(WStream *wstream, uv_file file)
 {
-  assert(uv_guess_handle(file) == UV_NAMED_PIPE ||
-         uv_guess_handle(file) == UV_TTY);
-  wstream->stream = xmalloc(sizeof(uv_pipe_t));
-  uv_pipe_init(uv_default_loop(), (uv_pipe_t *)wstream->stream, 0);
-  uv_pipe_open((uv_pipe_t *)wstream->stream, file);
-  wstream->stream->data = NULL;
-  handle_set_wstream((uv_handle_t *)wstream->stream, wstream);
-  wstream->free_handle = true;
+  event_call_async(wstream_set_file_async, 2, wstream, (void *)(uintptr_t)file);
 }
 
 /// Sets a callback that will be called on completion of a write request,
@@ -138,35 +126,9 @@ void wstream_set_write_cb(WStream *wstream, wstream_cb cb, void *data)
 /// @return false if the write failed
 bool wstream_write(WStream *wstream, WBuffer *buffer)
 {
-  // This should not be called after a wstream was freed
-  assert(!wstream->freed);
-
-  if (wstream->curmem > wstream->maxmem) {
-    goto err;
-  }
-
-  wstream->curmem += buffer->size;
-
-  WRequest *data = xmalloc(sizeof(WRequest));
-  data->wstream = wstream;
-  data->buffer = buffer;
-  data->uv_req.data = data;
-
-  uv_buf_t uvbuf;
-  uvbuf.base = buffer->data;
-  uvbuf.len = buffer->size;
-
-  if (uv_write(&data->uv_req, wstream->stream, &uvbuf, 1, write_cb)) {
-    xfree(data);
-    goto err;
-  }
-
-  wstream->pending_reqs++;
-  return true;
-
-err:
-  wstream_release_wbuffer(buffer);
-  return false;
+  bool rv;
+  event_call_async(wstream_write_async, 3, wstream, buffer, &rv);
+  return rv;
 }
 
 /// Creates a WBuffer object for holding output data. Instances of this
@@ -195,9 +157,9 @@ WBuffer *wstream_new_buffer(char *data,
   return rv;
 }
 
-static void write_cb(uv_write_t *req, int status)
+static void write_cb_sync(void *req)
 {
-  WRequest *data = req->data;
+  WRequest *data = req;
 
   data->wstream->curmem -= data->buffer->size;
 
@@ -206,7 +168,7 @@ static void write_cb(uv_write_t *req, int status)
   if (data->wstream->cb) {
     data->wstream->cb(data->wstream,
                       data->wstream->data,
-                      status);
+                      data->status);
   }
 
   data->wstream->pending_reqs--;
@@ -223,6 +185,13 @@ static void write_cb(uv_write_t *req, int status)
   xfree(data);
 }
 
+static void write_cb(uv_write_t *req, int status)
+{
+  WRequest *data = req->data;
+  data->status = status;
+  event_push(write_cb_sync, req->data);
+}
+
 void wstream_release_wbuffer(WBuffer *buffer)
 {
   if (!--buffer->refcount) {
@@ -232,6 +201,81 @@ void wstream_release_wbuffer(WBuffer *buffer)
 
     xfree(buffer);
   }
+}
+
+static void wstream_free_async(void **argv)
+{
+  WStream *wstream = argv[0];
+  if (!wstream->pending_reqs) {
+    if (wstream->free_handle) {
+      uv_close((uv_handle_t *)wstream->stream, close_cb);
+    } else {
+      handle_set_wstream((uv_handle_t *)wstream->stream, NULL);
+      xfree(wstream);
+    }
+  } else {
+    wstream->freed = true;
+  }
+}
+
+static void wstream_set_stream_async(void **argv)
+{
+  WStream *wstream = argv[0];
+  uv_stream_t *stream = argv[1];
+  handle_set_wstream((uv_handle_t *)stream, wstream);
+  wstream->stream = stream;
+}
+
+static void wstream_set_file_async(void **argv)
+{
+  WStream *wstream = argv[0];
+  uv_file file = (uv_file)(uintptr_t)argv[1];
+  assert(uv_guess_handle(file) == UV_NAMED_PIPE ||
+         uv_guess_handle(file) == UV_TTY);
+  wstream->stream = xmalloc(sizeof(uv_pipe_t));
+  uv_pipe_init(uv_default_loop(), (uv_pipe_t *)wstream->stream, 0);
+  uv_pipe_open((uv_pipe_t *)wstream->stream, file);
+  wstream->stream->data = NULL;
+  handle_set_wstream((uv_handle_t *)wstream->stream, wstream);
+  wstream->free_handle = true;
+}
+
+static void wstream_write_async(void **argv)
+{
+  WStream *wstream = argv[0];
+  WBuffer *buffer = argv[1];
+  bool *rv = argv[2];
+
+  // This should not be called after a wstream was freed
+  assert(!wstream->freed);
+
+  if (wstream->curmem > wstream->maxmem) {
+    goto err;
+  }
+
+  wstream->curmem += buffer->size;
+
+  WRequest *data = xmalloc(sizeof(WRequest));
+  data->wstream = wstream;
+  data->buffer = buffer;
+  data->uv_req.data = data;
+
+  uv_buf_t uvbuf;
+  uvbuf.base = buffer->data;
+  uvbuf.len = buffer->size;
+
+  if (uv_write(&data->uv_req, wstream->stream, &uvbuf, 1, write_cb)) {
+    xfree(data);
+    goto err;
+  }
+
+  wstream->pending_reqs++;
+  *rv = true;
+  return;
+
+err:
+  wstream_release_wbuffer(buffer);
+  *rv = false;
 }
 
 static void close_cb(uv_handle_t *handle)

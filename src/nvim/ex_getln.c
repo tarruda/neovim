@@ -298,14 +298,11 @@ getcmdline (
 
     /* Get a character.  Ignore K_IGNORE, it should not do anything, such
      * as stop completion. */
-    event_enable_deferred();
     do {
       c = safe_vgetc();
     } while (c == K_IGNORE);
-    event_disable_deferred();
 
     if (c == K_EVENT) {
-      event_process();
       continue;
     }
 

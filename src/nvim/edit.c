@@ -254,7 +254,7 @@ edit (
 )
 {
   if (curbuf->terminal) {
-    terminal_enter(true);
+    terminal_enter();
     return false;
   }
 
@@ -601,15 +601,12 @@ edit (
      * Get a character for Insert mode.  Ignore K_IGNORE.
      */
     lastc = c;                          /* remember previous char for CTRL-D */
-    event_enable_deferred();
     do {
       c = safe_vgetc();
     } while (c == K_IGNORE);
-    event_disable_deferred();
 
     if (c == K_EVENT) {
       c = lastc;
-      event_process();
       continue;
     }
 

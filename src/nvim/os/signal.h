@@ -1,7 +1,7 @@
 #ifndef NVIM_OS_SIGNAL_H
 #define NVIM_OS_SIGNAL_H
 
-#include "nvim/os/event_defs.h"
+#include "nvim/os/event.h"
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "os/signal.h.generated.h"
