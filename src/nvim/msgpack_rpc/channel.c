@@ -328,22 +328,22 @@ static void channel_from_stdio(void)
   channel->data.streams.uv = NULL;
 }
 
-static void job_out(RStream *rstream, void *data, bool eof)
+static void job_out(RStream *rstream, RBuffer *buf, void *data, bool eof)
 {
   Job *job = data;
-  parse_msgpack(rstream, job_data(job), eof);
+  parse_msgpack(rstream, buf, job_data(job), eof);
 }
 
-static void job_err(RStream *rstream, void *data, bool eof)
+static void job_err(RStream *rstream, RBuffer *buf, void *data, bool eof)
 {
   size_t count;
-  char buf[256];
+  char b[256];
 
-  while ((count = rstream_pending(rstream))) {
-    size_t read = rstream_read(rstream, buf, sizeof(buf) - 1);
-    buf[read] = NUL;
+  while ((count = buf->size)) {
+    size_t read = rbuffer_read(buf, b, sizeof(b) - 1);
+    b[read] = NUL;
     ELOG("Channel %" PRIu64 " stderr: %s",
-         ((Channel *)job_data(data))->id, buf);
+         ((Channel *)job_data(data))->id, b);
   }
 }
 
@@ -352,7 +352,7 @@ static void job_exit(Job *job, int status, void *data)
   decref(data);
 }
 
-static void parse_msgpack(RStream *rstream, void *data, bool eof)
+static void parse_msgpack(RStream *rstream, RBuffer *buf, void *data, bool eof)
 {
   Channel *channel = data;
   incref(channel);
@@ -363,14 +363,14 @@ static void parse_msgpack(RStream *rstream, void *data, bool eof)
     goto end;
   }
 
-  size_t count = rstream_pending(rstream);
+  size_t count = buf->size;
   DLOG("Feeding the msgpack parser with %u bytes of data from RStream(%p)",
        count,
        rstream);
 
   // Feed the unpacker with data
   msgpack_unpacker_reserve_buffer(channel->unpacker, count);
-  rstream_read(rstream, msgpack_unpacker_buffer(channel->unpacker), count);
+  rbuffer_read(buf, msgpack_unpacker_buffer(channel->unpacker), count);
   msgpack_unpacker_buffer_consumed(channel->unpacker, count);
 
   msgpack_unpacked unpacked;
@@ -387,14 +387,14 @@ static void parse_msgpack(RStream *rstream, void *data, bool eof)
       if (is_valid_rpc_response(&unpacked.data, channel)) {
         complete_call(&unpacked.data, channel);
       } else {
-        char buf[256];
-        snprintf(buf,
-                 sizeof(buf),
+        char b[256];
+        snprintf(b,
+                 sizeof(b),
                  "Channel %" PRIu64 " returned a response that doesn't have "
                  "a matching request id. Ensure the client is properly "
                  "synchronized",
                  channel->id);
-        call_set_error(channel, buf);
+        call_set_error(channel, b);
       }
       msgpack_unpacked_destroy(&unpacked);
       // Bail out from this event loop iteration

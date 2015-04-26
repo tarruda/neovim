@@ -162,54 +162,56 @@ static void timer_cb(uv_timer_t *handle)
 
 static bool handle_bracketed_paste(TermInput *input)
 {
-  char *ptr = rbuffer_read_ptr(input->read_buffer);
-  size_t len = rbuffer_pending(input->read_buffer);
-  if (len > 5 && (!strncmp(ptr, "\x1b[200~", 6)
-        || !strncmp(ptr, "\x1b[201~", 6))) {
-    bool enable = ptr[4] == '0';
-    // Advance past the sequence
-    rbuffer_consumed(input->read_buffer, 6);
-    if (input->paste_enabled == enable) {
-      return true;
-    }
-    if (enable) {
-      // Get the current mode
-      int state = get_real_state();
-      if (state & NORMAL) {
-        // Enter insert mode
-        input_enqueue(cstr_as_string("i"));
-      } else if (state & VISUAL) {
-        // Remove the selected text and enter insert mode
-        input_enqueue(cstr_as_string("c"));
-      } else if (!(state & INSERT)) {
-        // Don't mess with the paste option
+  RBUFFER_WHILE_NOT_EMPTY(input->read_buffer, ptr, len, SIZE_MAX) {
+    if (len > 5 && (!strncmp(ptr, "\x1b[200~", 6)
+          || !strncmp(ptr, "\x1b[201~", 6))) {
+      bool enable = ptr[4] == '0';
+      // Advance past the sequence
+      rbuffer_consumed(input->read_buffer, 6);
+      if (input->paste_enabled == enable) {
         return true;
       }
+      if (enable) {
+        // Get the current mode
+        int state = get_real_state();
+        if (state & NORMAL) {
+          // Enter insert mode
+          input_enqueue(cstr_as_string("i"));
+        } else if (state & VISUAL) {
+          // Remove the selected text and enter insert mode
+          input_enqueue(cstr_as_string("c"));
+        } else if (!(state & INSERT)) {
+          // Don't mess with the paste option
+          return true;
+        }
+      }
+      input_enqueue(cstr_as_string(PASTETOGGLE_KEY));
+      input->paste_enabled = enable;
+      return true;
     }
-    input_enqueue(cstr_as_string(PASTETOGGLE_KEY));
-    input->paste_enabled = enable;
-    return true;
+    break;
   }
   return false;
 }
 
 static bool handle_forced_escape(TermInput *input)
 {
-  char *ptr = rbuffer_read_ptr(input->read_buffer);
-  size_t len = rbuffer_pending(input->read_buffer);
-  if (len > 1 && ptr[0] == ESC && ptr[1] == NUL) {
-    // skip the ESC and NUL and push one <esc> to the input buffer
-    termkey_push_bytes(input->tk, ptr, 1);
-    rbuffer_consumed(input->read_buffer, 2);
-    tk_getkeys(input, true);
-    return true;
+  RBUFFER_WHILE_NOT_EMPTY(input->read_buffer, ptr, len, SIZE_MAX) {
+    if (len > 1 && ptr[0] == ESC && ptr[1] == NUL) {
+      // skip the ESC and NUL and push one <esc> to the input buffer
+      termkey_push_bytes(input->tk, ptr, 1);
+      rbuffer_consumed(input->read_buffer, 2);
+      tk_getkeys(input, true);
+      return true;
+    }
+    break;
   }
   return false;
 }
 
-static void read_cb(RStream *rstream, void *rstream_data, bool eof)
+static void read_cb(RStream *rstream, RBuffer *buf, void *data, bool eof)
 {
-  TermInput *input = rstream_data;
+  TermInput *input = data;
 
   if (eof) {
     if (input->in_fd == 0 && !os_isatty(0) && os_isatty(2)) {
@@ -236,19 +238,20 @@ static void read_cb(RStream *rstream, void *rstream_data, bool eof)
     if (handle_bracketed_paste(input) || handle_forced_escape(input)) {
       continue;
     }
-    char *ptr = rbuffer_read_ptr(input->read_buffer);
-    size_t len = rbuffer_pending(input->read_buffer);
-    // Find the next 'esc' and push everything up to it(excluding)
-    size_t i;
-    for (i = ptr[0] == ESC ? 1 : 0; i < len; i++) {
-      if (ptr[i] == '\x1b') {
-        break;
+
+    RBUFFER_WHILE_NOT_EMPTY(input->read_buffer, ptr, len, SIZE_MAX) {
+      // Find the next 'esc' and push everything up to it(excluding)
+      size_t i;
+      for (i = ptr[0] == ESC ? 1 : 0; i < len; i++) {
+        if (ptr[i] == '\x1b') {
+          break;
+        }
       }
+      size_t consumed = termkey_push_bytes(input->tk, ptr, i);
+      rbuffer_consumed(input->read_buffer, consumed);
+      tk_getkeys(input, false);
     }
-    size_t consumed = termkey_push_bytes(input->tk, ptr, i);
-    rbuffer_consumed(input->read_buffer, consumed);
-    tk_getkeys(input, false);
-  } while (rbuffer_pending(input->read_buffer));
+  } while (input->read_buffer->size);
 }
 
 static TermInput *term_input_new(void)
