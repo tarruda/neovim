@@ -294,7 +294,7 @@ static void system_data_cb(RStream *rstream, RBuffer *buf, void *data, bool eof)
 
 static void out_data_cb(RStream *rstream, RBuffer *buf, void *data, bool eof)
 {
-  RBUFFER_WHILE_NOT_EMPTY(buf, ptr, len, SIZE_MAX) {
+  RBUFFER_WHILE_NOT_EMPTY(buf, ptr, len) {
     rbuffer_consumed(buf, write_output(ptr, len, false, eof));
   }
 }

@@ -308,7 +308,7 @@ static void read_cb(RStream *rstream, RBuffer *buf, void *data, bool at_eof)
     eof = true;
   }
 
-  RBUFFER_WHILE_NOT_EMPTY(read_buffer, ptr, len, SIZE_MAX) {
+  RBUFFER_WHILE_NOT_EMPTY(read_buffer, ptr, len) {
     (void)rbuffer_write(input_buffer, ptr, len);
     rbuffer_consumed(read_buffer, len);
   }
@@ -320,7 +320,7 @@ static void process_interrupts(void)
     return;
   }
 
-  RBUFFER_WHILE_NOT_EMPTY(input_buffer, inbuf, count, SIZE_MAX) {
+  RBUFFER_WHILE_NOT_EMPTY(input_buffer, inbuf, count) {
     size_t consume_count = 0;
 
     for (int i = (int)count - 1; i >= 0; i--) {
@@ -334,8 +334,6 @@ static void process_interrupts(void)
     if (got_int) {
       // Remove everything typed before the CTRL-C
       rbuffer_consumed(input_buffer, consume_count);
-    } else {
-      break;
     }
   }
 }

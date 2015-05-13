@@ -168,17 +168,17 @@ static inline void rbuffer_consumed(RBuffer *buf, size_t count)
 //       RBUFFER_WHILE_NOT_EMPTY(rbuf, rptr, rcnt)
 //         rbuffer_consumed(rbuf, read_data(state, rptr, rcnt));
 //
-#define RBUFFER_WHILE_NOT_FULL(buf, wptr, wcnt, available)  \
-  for (size_t wcnt = 0, d = 0; !d; d = 1)                   \
+#define RBUFFER_WHILE_NOT_FULL(buf, wptr, wcnt)             \
+  for (size_t wcnt = 0, d = 0; !d; )                        \
     for (char *wptr = rbuffer_write_ptr(buf, &wcnt);        \
-         wptr != NULL && available;                         \
+         wptr != NULL && d++ == 0;                          \
          wptr = rbuffer_write_ptr(buf, &wcnt))
 
 
-#define RBUFFER_WHILE_NOT_EMPTY(buf, rptr, rcnt, space)     \
-  for (size_t rcnt = 0, d = 0; !d; d = 1)                   \
+#define RBUFFER_WHILE_NOT_EMPTY(buf, rptr, rcnt)            \
+  for (size_t rcnt = 0, d = 0; !d; )                        \
     for (char *rptr = rbuffer_read_ptr(buf, &rcnt);         \
-         rptr != NULL && space;                             \
+         rptr != NULL && d++ == 0;                          \
          rptr = rbuffer_read_ptr(buf, &rcnt))
 
 
@@ -189,7 +189,7 @@ static inline size_t rbuffer_write(RBuffer *buf, char *src, size_t src_size)
 {
   size_t size = src_size;
 
-  RBUFFER_WHILE_NOT_FULL(buf, wptr, wcnt, src_size) {
+  RBUFFER_WHILE_NOT_FULL(buf, wptr, wcnt) {
     size_t copy_count = MIN(src_size, wcnt);
     memcpy(wptr, src, copy_count);
     rbuffer_produced(buf, copy_count);
@@ -205,7 +205,7 @@ static inline size_t rbuffer_read(RBuffer *buf, char *dst, size_t dst_size)
 {
   size_t size = dst_size;
 
-  RBUFFER_WHILE_NOT_EMPTY(buf, rptr, rcnt, dst_size) {
+  RBUFFER_WHILE_NOT_EMPTY(buf, rptr, rcnt) {
     size_t copy_count = MIN(dst_size, rcnt);
     memcpy(dst, rptr, copy_count);
     rbuffer_consumed(buf, copy_count);

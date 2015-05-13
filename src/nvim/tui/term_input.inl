@@ -162,7 +162,7 @@ static void timer_cb(uv_timer_t *handle)
 
 static bool handle_bracketed_paste(TermInput *input)
 {
-  RBUFFER_WHILE_NOT_EMPTY(input->read_buffer, ptr, len, SIZE_MAX) {
+  RBUFFER_WHILE_NOT_EMPTY(input->read_buffer, ptr, len) {
     if (len > 5 && (!strncmp(ptr, "\x1b[200~", 6)
           || !strncmp(ptr, "\x1b[201~", 6))) {
       bool enable = ptr[4] == '0';
@@ -196,7 +196,7 @@ static bool handle_bracketed_paste(TermInput *input)
 
 static bool handle_forced_escape(TermInput *input)
 {
-  RBUFFER_WHILE_NOT_EMPTY(input->read_buffer, ptr, len, SIZE_MAX) {
+  RBUFFER_WHILE_NOT_EMPTY(input->read_buffer, ptr, len) {
     if (len > 1 && ptr[0] == ESC && ptr[1] == NUL) {
       // skip the ESC and NUL and push one <esc> to the input buffer
       termkey_push_bytes(input->tk, ptr, 1);
@@ -239,7 +239,7 @@ static void read_cb(RStream *rstream, RBuffer *buf, void *data, bool eof)
       continue;
     }
 
-    RBUFFER_WHILE_NOT_EMPTY(input->read_buffer, ptr, len, SIZE_MAX) {
+    RBUFFER_WHILE_NOT_EMPTY(input->read_buffer, ptr, len) {
       // Find the next 'esc' and push everything up to it(excluding)
       size_t i;
       for (i = ptr[0] == ESC ? 1 : 0; i < len; i++) {

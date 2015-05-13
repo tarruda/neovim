@@ -20337,7 +20337,7 @@ static void on_job_output(RStream *rstream, Job *job, RBuffer *buf, bool eof,
   }
 
   TerminalJobData *data = job_data(job);
-  RBUFFER_WHILE_NOT_EMPTY(buf, ptr, len, SIZE_MAX) {
+  RBUFFER_WHILE_NOT_EMPTY(buf, ptr, len) {
     // The order here matters, the terminal must receive the data first because
     // push_job_event will modify the read buffer(convert NULs into NLs)
     if (data->term) {
