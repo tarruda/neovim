@@ -142,6 +142,7 @@ static const char *main_errors[] = {
 /// Needed for unit tests. Must be called after `time_init()`.
 void early_init(void)
 {
+  fs_init();
   handle_init();
 
   (void)mb_init();      // init mb_bytelen_tab[] to ones
