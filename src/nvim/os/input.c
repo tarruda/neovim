@@ -204,6 +204,8 @@ size_t input_enqueue(String keys)
 
   size_t rv = (size_t)(ptr - keys.data);
   process_interrupts();
+  // push a dummy event to break out of event_poll
+  event_push(NULL, NULL);
   uv_mutex_unlock(&input_mutex);
   return rv;
 }
@@ -356,8 +358,6 @@ static void process_interrupts(void)
   if (interrupted && consume_count) {
     // Remove everything typed before the CTRL-C
     rbuffer_consumed(input_buffer, consume_count);
-    // push a "dummy" event to break out of event_poll
-    event_push(NULL, NULL);
   }
 }
 

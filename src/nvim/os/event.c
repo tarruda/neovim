@@ -137,7 +137,7 @@ void *event_poll(void *start, int timeout, EventFilter *filter)
 
   if (remaining > 0) {
     before = os_hrtime();
-    remaining = timeout * 1000000;  // convert to nanoseconds
+    remaining = (int64_t)timeout * 1000000;  // convert to nanoseconds
   }
 
   uv_mutex_lock(&events.mutex);
