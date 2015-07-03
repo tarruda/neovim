@@ -103,3 +103,55 @@ struct tm *os_get_localtime(struct tm *result) FUNC_ATTR_NONNULL_ALL
   time_t rawtime = time(NULL);
   return os_localtime_r(&rawtime, result);
 }
+
+void time_watcher_init(TimeWatcher *watcher)
+{
+  event_call_async(time_watcher_init_async, 1, watcher);
+}
+
+void time_watcher_start(TimeWatcher *watcher, event_handler cb,
+    uint64_t timeout, uint64_t repeat, void *data)
+{
+  watcher->data = data;
+  watcher->cb = cb;
+  event_call_async(time_watcher_start_async, 3, watcher, &timeout, &repeat);
+}
+
+void time_watcher_stop(TimeWatcher *watcher)
+{
+  event_call_async(time_watcher_stop_async, 1, watcher);
+}
+
+void time_watcher_close(TimeWatcher *watcher, event_handler cb)
+{
+  event_close_handle((uv_handle_t *)&watcher->uv, cb);
+}
+
+static void time_watcher_init_async(void **argv)
+{
+  TimeWatcher *watcher = argv[0];
+  uv_timer_init(uv_default_loop(), &watcher->uv);
+  watcher->cb = NULL;
+  watcher->data = NULL;
+  watcher->uv.data = watcher;
+}
+
+static void timer_cb(uv_timer_t *handle)
+{
+  TimeWatcher *watcher = handle->data;
+  watcher->cb(watcher->data);
+}
+
+static void time_watcher_start_async(void **argv)
+{
+  TimeWatcher *watcher = argv[0];
+  uint64_t *timeout = argv[1];
+  uint64_t *repeat = argv[1];
+  uv_timer_start(&watcher->uv, timer_cb, *timeout, *repeat);
+}
+
+static void time_watcher_stop_async(void **argv)
+{
+  TimeWatcher *watcher = argv[0];
+  uv_timer_stop(&watcher->uv);
+}

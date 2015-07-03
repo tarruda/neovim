@@ -10,6 +10,7 @@
 #include "nvim/msgpack_rpc/channel.h"
 #include "nvim/msgpack_rpc/remote_ui.h"
 #include "nvim/os/event.h"
+#include "nvim/os/time.h"
 #include "nvim/os/rstream.h"
 #include "nvim/os/rstream_defs.h"
 #include "nvim/os/wstream.h"

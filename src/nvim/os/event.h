@@ -8,13 +8,10 @@
 #include <uv.h>
 
 #include "nvim/os/job_defs.h"
-#include "nvim/os/time.h"
-#include "nvim/os/time.h"
 
 typedef struct event_filter EventFilter;
 
 typedef void (*event_handler)(void *event_data);
-typedef void (*signal_event_handler)(int signum, void *event_data);
 typedef bool (*event_filter_cb)(void *event_data, void *filter_data);
 typedef void (*async_callback)(void **argv);
 
@@ -22,19 +19,6 @@ struct event_filter {
   event_filter_cb predicate;
   void *data;
 };
-
-typedef struct timer {
-  uv_timer_t uv;
-  void *data;
-  event_handler cb;
-} Timer;
-
-typedef struct signal {
-  uv_signal_t uv;
-  void *data;
-  int signum;
-  signal_event_handler cb;
-} Signal;
 
 #define event_process_one(timeout) event_poll(NULL, timeout, NULL)
 

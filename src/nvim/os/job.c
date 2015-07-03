@@ -14,6 +14,7 @@
 #include "nvim/os/wstream_defs.h"
 #include "nvim/os/event.h"
 #include "nvim/os/time.h"
+#include "nvim/os/signal.h"
 #include "nvim/vim.h"
 #include "nvim/memory.h"
 
@@ -44,8 +45,8 @@
 
 Job *table[MAX_RUNNING_JOBS] = {NULL};
 size_t stop_requests = 0;
-Timer job_stop_timer;
-Signal schld;
+TimeWatcher job_stop_timer;
+SignalWatcher schld;
 
 // Some helpers shared in this module
 
@@ -58,9 +59,9 @@ Signal schld;
 void job_init(void)
 {
   uv_disable_stdio_inheritance();
-  event_timer_init(&job_stop_timer);
-  event_signal_init(&schld);
-  event_signal_start(&schld, chld_handler, SIGCHLD);
+  time_watcher_init(&job_stop_timer);
+  signal_watcher_init(&schld, NULL);
+  signal_watcher_start(&schld, chld_handler, SIGCHLD);
 }
 
 /// Releases job control resources and terminates running jobs
@@ -78,10 +79,10 @@ void job_teardown(void)
 
   // Wait until all jobs are closed
   event_poll_until(-1, !stop_requests, NULL);
-  event_signal_stop(&schld);
-  event_close_handle((uv_handle_t *)&schld.uv, NULL);
+  signal_watcher_stop(&schld);
+  signal_watcher_close(&schld, NULL);
   // Close the timer
-  event_close_handle((uv_handle_t *)&job_stop_timer.uv, NULL);
+  time_watcher_close(&job_stop_timer, NULL);
 }
 
 /// Tries to start a new job.
@@ -224,7 +225,7 @@ void job_stop(Job *job)
     // When there's at least one stop request pending, start a timer that
     // will periodically check if a signal should be send to a to the job
     DLOG("Starting job kill timer");
-    event_timer_start(&job_stop_timer, job_stop_timer_cb, 100, 100, NULL);
+    time_watcher_start(&job_stop_timer, job_stop_timer_cb, 100, 100, NULL);
   }
 }
 
@@ -443,7 +444,7 @@ static void job_exited(void *data)
   process_close(data);
 }
 
-static void chld_handler(int signum, void *data)
+static void chld_handler(SignalWatcher *watcher, int signum, void *data)
 {
   int stat = 0;
   int pid;

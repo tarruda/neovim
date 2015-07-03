@@ -69,6 +69,7 @@
 #include "nvim/window.h"
 #include "nvim/fileio.h"
 #include "nvim/os/event.h"
+#include "nvim/os/time.h"
 #include "nvim/os/input.h"
 #include "nvim/api/private/helpers.h"
 
@@ -82,7 +83,7 @@
 // of data.
 #define REFRESH_DELAY 10
 
-static Timer refresh_timer;
+static TimeWatcher refresh_timer;
 static bool refresh_pending = false;
 
 typedef struct {
@@ -152,7 +153,7 @@ static VTermColor default_vt_bg_rgb;
 void terminal_init(void)
 {
   invalidated_terminals = pmap_new(ptr_t)();
-  event_timer_init(&refresh_timer);
+  time_watcher_init(&refresh_timer);
 
   // initialize a rgb->color index map for cterm attributes(VTermScreenCell
   // only has RGB information and we need color indexes for terminal UIs)
@@ -177,8 +178,8 @@ void terminal_init(void)
 
 void terminal_teardown(void)
 {
-  event_timer_stop(&refresh_timer);
-  event_close_handle((uv_handle_t *)&refresh_timer, NULL);
+  time_watcher_stop(&refresh_timer);
+  time_watcher_close(&refresh_timer, NULL);
   pmap_free(ptr_t)(invalidated_terminals);
   map_free(int, int)(color_indexes);
 }
@@ -872,7 +873,8 @@ static void invalidate_terminal(Terminal *term, int start_row, int end_row)
 
   pmap_put(ptr_t)(invalidated_terminals, term, NULL);
   if (!refresh_pending) {
-    event_timer_start(&refresh_timer, refresh_timer_cb, REFRESH_DELAY, 0, NULL);
+    time_watcher_start(&refresh_timer, refresh_timer_cb, REFRESH_DELAY, 0,
+        NULL);
     refresh_pending = true;
   }
 }

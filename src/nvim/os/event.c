@@ -16,6 +16,7 @@
 #include "nvim/os/rstream.h"
 #include "nvim/os/wstream.h"
 #include "nvim/os/job.h"
+#include "nvim/os/time.h"
 #include "nvim/vim.h"
 #include "nvim/memory.h"
 #include "nvim/misc2.h"
@@ -212,70 +213,6 @@ bool event_has_pending(void)
   return rv;
 }
 
-void event_timer_init(Timer *timer)
-{
-  event_call_async(event_timer_init_async, 1, timer);
-}
-
-void event_timer_start(Timer *timer, event_handler cb, uint64_t timeout,
-    uint64_t repeat, void *data)
-{
-  timer->data = data;
-  timer->cb = cb;
-  event_call_async(event_timer_start_async, 3, timer, &timeout, &repeat);
-}
-
-void event_timer_stop(Timer *timer)
-{
-  event_call_async(event_timer_stop_async, 1, timer);
-}
-
-static void event_timer_init_async(void **argv)
-{
-  Timer *timer = argv[0];
-  uv_timer_init(loop, &timer->uv);
-  timer->cb = NULL;
-  timer->data = NULL;
-  timer->uv.data = timer;
-}
-
-static void timer_cb(uv_timer_t *handle)
-{
-  Timer *timer = handle->data;
-  timer->cb(timer->data);
-}
-
-static void event_timer_start_async(void **argv)
-{
-  Timer *timer = argv[0];
-  uint64_t *timeout = argv[1];
-  uint64_t *repeat = argv[1];
-  uv_timer_start(&timer->uv, timer_cb, *timeout, *repeat);
-}
-
-static void event_timer_stop_async(void **argv)
-{
-  Timer *timer = argv[0];
-  uv_timer_stop(&timer->uv);
-}
-
-void event_signal_init(Signal *signal)
-{
-  event_call_async(event_signal_init_async, 1, signal);
-}
-
-void event_signal_start(Signal *signal, signal_event_handler cb, int signum)
-{
-  signal->signum = signum;
-  signal->cb = cb;
-  event_call_async(event_signal_start_async, 1, signal);
-}
-
-void event_signal_stop(Signal *signal)
-{
-  event_call_async(event_signal_stop_async, 1, signal);
-}
-
 void event_close_handle(uv_handle_t *handle, event_handler cb)
 {
   struct handle_wrapper *wrapper = xmalloc(sizeof(struct handle_wrapper));
@@ -301,34 +238,6 @@ static void event_close_handle_async(void **argv)
   wrapper->data = handle->data;
   handle->data = wrapper;
   uv_close(handle, handle_close);
-}
-
-static void event_signal_init_async(void **argv)
-{
-  Signal *signal = argv[0];
-  uv_signal_init(loop, &signal->uv);
-  signal->cb = NULL;
-  signal->data = NULL;
-}
-
-static void signal_cb(uv_signal_t *handle, int signum)
-{
-  Signal *signal = handle->data;
-  signal->cb(signum, signal->data);
-}
-
-static void event_signal_start_async(void **argv)
-{
-  Signal *signal = argv[0];
-  signal->data = signal->uv.data;
-  signal->uv.data = signal;
-  uv_signal_start(&signal->uv, signal_cb, signal->signum);
-}
-
-static void event_signal_stop_async(void **argv)
-{
-  Signal *signal = argv[0];
-  uv_signal_stop(&signal->uv);
 }
 
 static void process_all_events(void)
