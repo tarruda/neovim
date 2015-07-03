@@ -43,7 +43,7 @@ typedef struct {
   uv_loop_t *write_loop;
   unibi_term *ut;
   uv_tty_t output_handle;
-  uv_signal_t winch_handle;
+  Signal winch_handle;
   Rect scroll_region;
   kvec_t(Rect) invalid_regions;
   int row, col;
@@ -132,9 +132,9 @@ UI *tui_start(void)
   update_size(ui);
 
   // listen for SIGWINCH
-  uv_signal_init(uv_default_loop(), &data->winch_handle);
-  uv_signal_start(&data->winch_handle, sigwinch_cb, SIGWINCH);
+  event_signal_init(&data->winch_handle);
   data->winch_handle.data = ui;
+  event_signal_start(&data->winch_handle, sigwinch_cb, SIGWINCH);
 
   ui->stop = tui_stop;
   ui->rgb = os_getenv("NVIM_TUI_ENABLE_TRUE_COLOR") != NULL;
@@ -172,8 +172,8 @@ static void tui_stop(UI *ui)
   TUIData *data = ui->data;
   // Destroy common stuff
   kv_destroy(data->invalid_regions);
-  uv_signal_stop(&data->winch_handle);
-  uv_close((uv_handle_t *)&data->winch_handle, NULL);
+  event_signal_stop(&data->winch_handle);
+  event_close_handle((uv_handle_t *)&data->winch_handle.uv, NULL);
   // Destroy input stuff
   term_input_destroy(data->input);
   // Destroy output stuff
@@ -207,9 +207,9 @@ static void try_resize(void *data)
   ui_refresh();
 }
 
-static void sigwinch_cb(uv_signal_t *handle, int signum)
+static void sigwinch_cb(int signum, void *data)
 {
-  event_push(try_resize, handle->data);
+  event_push(try_resize, data);
 }
 
 static bool attrs_differ(HlAttrs a1, HlAttrs a2)
@@ -591,7 +591,7 @@ static void tui_set_icon(UI *ui, char *icon)
 static void tui_set_encoding(UI *ui, char* enc)
 {
   TUIData *data = ui->data;
-  term_input_set_encoding(data->input, enc);
+  event_call_async(term_input_set_encoding_async, 2, data->input, enc);
 }
 
 static void invalidate(UI *ui, int top, int bot, int left, int right)

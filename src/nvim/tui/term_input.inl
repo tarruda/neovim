@@ -265,6 +265,19 @@ static void read_cb(RStream *rstream, RBuffer *buf, void *data, bool eof)
   } while (rbuffer_size(input->read_buffer));
 }
 
+static void timer_init_async(void **argv)
+{
+  TermInput *input = argv[0];
+  uv_timer_init(uv_default_loop(), &input->timer_handle);
+}
+
+static void timer_close_async(void **argv)
+{
+  TermInput *input = argv[0];
+  uv_timer_stop(&input->timer_handle);
+  uv_close((uv_handle_t *)&input->timer_handle, NULL);
+}
+
 static TermInput *term_input_new(void)
 {
   TermInput *rv = xmalloc(sizeof(TermInput));
@@ -291,23 +304,24 @@ static TermInput *term_input_new(void)
   rstream_set_file(rv->read_stream, rv->in_fd);
   rstream_start(rv->read_stream);
   // initialize a timer handle for handling ESC with libtermkey
-  uv_timer_init(uv_default_loop(), &rv->timer_handle);
+  event_call_async(timer_init_async, 1, rv);
   rv->timer_handle.data = rv;
   return rv;
 }
 
 static void term_input_destroy(TermInput *input)
 {
-  uv_timer_stop(&input->timer_handle);
+  event_call_async(timer_close_async, 1, input);
   rstream_stop(input->read_stream);
   rstream_free(input->read_stream);
-  uv_close((uv_handle_t *)&input->timer_handle, NULL);
   termkey_destroy(input->tk);
   xfree(input);
 }
 
-static void term_input_set_encoding(TermInput *input, char* enc)
+static void term_input_set_encoding_async(void **argv)
 {
+  TermInput *input = argv[0];
+  char *enc = argv[1];
   int enc_flag = strcmp(enc, "utf-8") == 0 ? TERMKEY_FLAG_UTF8
                                            : TERMKEY_FLAG_RAW;
   termkey_set_flags(input->tk, enc_flag);

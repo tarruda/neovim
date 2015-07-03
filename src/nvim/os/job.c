@@ -44,8 +44,8 @@
 
 Job *table[MAX_RUNNING_JOBS] = {NULL};
 size_t stop_requests = 0;
-uv_timer_t job_stop_timer;
-uv_signal_t schld;
+Timer job_stop_timer;
+Signal schld;
 
 // Some helpers shared in this module
 
@@ -58,9 +58,9 @@ uv_signal_t schld;
 void job_init(void)
 {
   uv_disable_stdio_inheritance();
-  uv_timer_init(uv_default_loop(), &job_stop_timer);
-  uv_signal_init(uv_default_loop(), &schld);
-  uv_signal_start(&schld, chld_handler, SIGCHLD);
+  event_timer_init(&job_stop_timer);
+  event_signal_init(&schld);
+  event_signal_start(&schld, chld_handler, SIGCHLD);
 }
 
 /// Releases job control resources and terminates running jobs
@@ -78,10 +78,10 @@ void job_teardown(void)
 
   // Wait until all jobs are closed
   event_poll_until(-1, !stop_requests, NULL);
-  uv_signal_stop(&schld);
-  uv_close((uv_handle_t *)&schld, NULL);
+  event_signal_stop(&schld);
+  event_close_handle((uv_handle_t *)&schld.uv, NULL);
   // Close the timer
-  uv_close((uv_handle_t *)&job_stop_timer, NULL);
+  event_close_handle((uv_handle_t *)&job_stop_timer.uv, NULL);
 }
 
 /// Tries to start a new job.
@@ -224,7 +224,7 @@ void job_stop(Job *job)
     // When there's at least one stop request pending, start a timer that
     // will periodically check if a signal should be send to a to the job
     DLOG("Starting job kill timer");
-    uv_timer_start(&job_stop_timer, job_stop_timer_cb, 100, 100);
+    event_timer_start(&job_stop_timer, job_stop_timer_cb, 100, 100, NULL);
   }
 }
 
@@ -391,7 +391,7 @@ JobOptions *job_opts(Job *job)
 
 /// Iterates the table, sending SIGTERM to stopped jobs and SIGKILL to those
 /// that didn't die from SIGTERM after a while(exit_timeout is 0).
-static void job_stop_timer_cb(uv_timer_t *handle)
+static void job_stop_timer_cb(void *data)
 {
   Job *job;
   uint64_t now = os_hrtime();
@@ -443,7 +443,7 @@ static void job_exited(void *data)
   process_close(data);
 }
 
-static void chld_handler(uv_signal_t *handle, int signum)
+static void chld_handler(int signum, void *data)
 {
   int stat = 0;
   int pid;

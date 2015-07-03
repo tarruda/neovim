@@ -32,6 +32,7 @@ typedef struct timer {
 typedef struct signal {
   uv_signal_t uv;
   void *data;
+  int signum;
   signal_event_handler cb;
 } Signal;
 

@@ -43,7 +43,7 @@ struct job {
 
 extern Job *table[];
 extern size_t stop_requests;
-extern uv_timer_t job_stop_timer;
+extern Timer job_stop_timer;
 
 static inline bool process_spawn(Job *job)
 {
@@ -95,7 +95,7 @@ static inline void job_exit_callback(Job *job)
   if (stop_requests && !--stop_requests) {
     // Stop the timer if no more stop requests are pending
     DLOG("Stopping job kill timer");
-    uv_timer_stop(&job_stop_timer);
+    event_timer_stop(&job_stop_timer);
   }
 }
 

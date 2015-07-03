@@ -8,6 +8,7 @@
 #include "nvim/msgpack_rpc/channel.h"
 #include "nvim/msgpack_rpc/server.h"
 #include "nvim/os/os.h"
+#include "nvim/os/event.h"
 #include "nvim/ascii.h"
 #include "nvim/eval.h"
 #include "nvim/garray.h"
@@ -83,7 +84,7 @@ static uv_handle_t *server_handle(Server *server)
 /// Teardown a single server
 static void server_close_cb(Server **server)
 {
-  uv_close(server_handle(*server), free_server);
+  event_close_handle(server_handle(*server), free);
 }
 
 /// Set v:servername to the first server in the server list, or unset it if no
@@ -173,32 +174,12 @@ int server_start(const char *endpoint)
     }
   }
 
+  server->type = server_type;
   int result;
   uv_stream_t *stream = NULL;
 
   xstrlcpy(server->addr, addr, sizeof(server->addr));
-
-  if (server_type == kServerTypeTcp) {
-    // Listen on tcp address/port
-    uv_tcp_init(uv_default_loop(), &server->socket.tcp.handle);
-    result = uv_tcp_bind(&server->socket.tcp.handle,
-                         (const struct sockaddr *)&server->socket.tcp.addr,
-                         0);
-    stream = (uv_stream_t *)&server->socket.tcp.handle;
-  } else {
-    // Listen on named pipe or unix socket
-    uv_pipe_init(uv_default_loop(), &server->socket.pipe.handle, 0);
-    result = uv_pipe_bind(&server->socket.pipe.handle, server->addr);
-    stream = (uv_stream_t *)&server->socket.pipe.handle;
-  }
-
-  stream->data = server;
-
-  if (result == 0) {
-    result = uv_listen((uv_stream_t *)&server->socket.tcp.handle,
-                       MAX_CONNECTIONS,
-                       connection_cb);
-  }
+  event_call_async(init_server_handle_async, 3, server, &stream, &result);
 
   assert(result <= 0);  // libuv should have returned -errno or zero.
   if (result < 0) {
@@ -210,7 +191,7 @@ int server_start(const char *endpoint)
         result = -ENOENT;
       }
     }
-    uv_close((uv_handle_t *)stream, free_server);
+    event_close_handle((uv_handle_t *)stream, free);
     ELOG("Failed to start server: %s", uv_strerror(result));
     return result;
   }
@@ -220,8 +201,6 @@ int server_start(const char *endpoint)
   if (listen_address == NULL) {
     os_setenv(LISTEN_ADDRESS_ENV_VAR, addr, 1);
   }
-
-  server->type = server_type;
 
   // Add the server to the list.
   ga_grow(&servers, 1);
@@ -265,7 +244,7 @@ void server_stop(char *endpoint)
     os_unsetenv(LISTEN_ADDRESS_ENV_VAR);
   }
 
-  uv_close(server_handle(server), free_server);
+  event_close_handle(server_handle(server), free);
 
   // Remove this server from the list by swapping it with the last item.
   if (i != servers.ga_len - 1) {
@@ -322,7 +301,12 @@ static void connection_cb(uv_stream_t *server, int status)
     return;
   }
 
-  channel_from_stream(client);
+  event_push(channel_from_stream_async, client);
+}
+
+static void channel_from_stream_async(void *data)
+{
+  channel_from_stream(data);
 }
 
 static void free_client(uv_handle_t *handle)
@@ -330,7 +314,31 @@ static void free_client(uv_handle_t *handle)
   xfree(handle);
 }
 
-static void free_server(uv_handle_t *handle)
+static void init_server_handle_async(void **argv)
 {
-  xfree(handle->data);
+  Server *server = argv[0];
+  uv_stream_t **stream = argv[1];
+  int *result = argv[2];
+
+  if (server->type == kServerTypeTcp) {
+    // Listen on tcp address/port
+    uv_tcp_init(uv_default_loop(), &server->socket.tcp.handle);
+    *result = uv_tcp_bind(&server->socket.tcp.handle,
+        (const struct sockaddr *)&server->socket.tcp.addr,
+        0);
+    *stream = (uv_stream_t *)&server->socket.tcp.handle;
+  } else {
+    // Listen on named pipe or unix socket
+    uv_pipe_init(uv_default_loop(), &server->socket.pipe.handle, 0);
+    *result = uv_pipe_bind(&server->socket.pipe.handle, server->addr);
+    *stream = (uv_stream_t *)&server->socket.pipe.handle;
+  }
+
+  (*stream)->data = server;
+
+  if (result == 0) {
+    *result = uv_listen((uv_stream_t *)&server->socket.tcp.handle,
+                       MAX_CONNECTIONS,
+                       connection_cb);
+  }
 }

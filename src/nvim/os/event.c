@@ -25,6 +25,11 @@
 
 #include "nvim/lib/klist.h"
 
+struct handle_wrapper {
+  void *data;
+  event_handler cb;
+};
+
 typedef struct event {
   void *data;
   event_handler handler;
@@ -252,7 +257,6 @@ static void event_timer_stop_async(void **argv)
 {
   Timer *timer = argv[0];
   uv_timer_stop(&timer->uv);
-
 }
 
 void event_signal_init(Signal *signal)
@@ -262,14 +266,37 @@ void event_signal_init(Signal *signal)
 
 void event_signal_start(Signal *signal, signal_event_handler cb, int signum)
 {
-  signal->data = &signum;
+  signal->signum = signum;
   signal->cb = cb;
-  event_call_async(event_signal_start_async, 2, signal, &signum);
+  event_call_async(event_signal_start_async, 1, signal);
 }
 
 void event_signal_stop(Signal *signal)
 {
   event_call_async(event_signal_stop_async, 1, signal);
+}
+
+void event_close_handle(uv_handle_t *handle, event_handler cb)
+{
+  struct handle_wrapper wrapper = {.cb = cb};
+  event_call_async(event_close_handle_async, 2, handle, &wrapper);
+}
+
+static void handle_close(uv_handle_t *handle)
+{
+  struct handle_wrapper *wrapper = handle->data;
+  if (wrapper->cb) {
+    wrapper->cb(wrapper->data);
+  }
+}
+
+static void event_close_handle_async(void **argv)
+{
+  uv_handle_t *handle = argv[0];
+  struct handle_wrapper *wrapper = argv[1];
+  wrapper->data = handle->data;
+  handle->data = wrapper;
+  uv_close(handle, handle_close);
 }
 
 static void event_signal_init_async(void **argv)
@@ -278,7 +305,6 @@ static void event_signal_init_async(void **argv)
   uv_signal_init(loop, &signal->uv);
   signal->cb = NULL;
   signal->data = NULL;
-  signal->uv.data = signal;
 }
 
 static void signal_cb(uv_signal_t *handle, int signum)
@@ -290,15 +316,15 @@ static void signal_cb(uv_signal_t *handle, int signum)
 static void event_signal_start_async(void **argv)
 {
   Signal *signal = argv[0];
-  int *signum = argv[1];
-  uv_signal_start(&signal->uv, signal_cb, *signum);
+  signal->data = signal->uv.data;
+  signal->uv.data = signal;
+  uv_signal_start(&signal->uv, signal_cb, signal->signum);
 }
 
 static void event_signal_stop_async(void **argv)
 {
   Signal *signal = argv[0];
   uv_signal_stop(&signal->uv);
-  uv_close((uv_handle_t *)&signal->uv, NULL);
 }
 
 static void process_all_events(void)
@@ -345,14 +371,15 @@ static void prepare_cb(uv_prepare_t *handle)
   uv_close((uv_handle_t *)handle, NULL);
 }
 
-static void run(void *loop)
+static void run(void *data)
 {
+  uv_loop_t *loop = uv_default_loop();
   uv_async_init(loop, &async_handle, async_cb);
   uv_prepare_init(loop, &prepare_handle);
   uv_prepare_start(&prepare_handle, prepare_cb);
   do {
-    uv_run(uv_default_loop(), UV_RUN_DEFAULT);
-  } while (uv_loop_close(uv_default_loop()));
+    uv_run(loop, UV_RUN_DEFAULT);
+  } while (uv_loop_close(loop));
 }
 
 static void stop_async(void **argv)
