@@ -191,6 +191,7 @@ include_directories(SYSTEM ${LIBTERMKEY_INCLUDE_DIRS})
 find_package(LibVterm REQUIRED)
 include_directories(SYSTEM ${LIBVTERM_INCLUDE_DIRS})
 
+option(CLANG_TSAN "Enable Clang thread sanitizer for nvim binary." OFF)
 option(SANITIZE "Enable Clang sanitizers for nvim binary" OFF)
 if(SANITIZE AND NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
   message(WARNING "SANITIZE is only supported for Clang, disabling")

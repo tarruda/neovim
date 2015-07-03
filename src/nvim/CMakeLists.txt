@@ -195,6 +195,10 @@ if(SANITIZE)
   set_property(TARGET nvim APPEND_STRING PROPERTY COMPILE_FLAGS "-DEXITFREE ")
   set_property(TARGET nvim APPEND_STRING PROPERTY COMPILE_FLAGS "-fno-sanitize-recover -fno-omit-frame-pointer -fno-optimize-sibling-calls -fsanitize=address -fsanitize=undefined ")
   set_property(TARGET nvim APPEND_STRING PROPERTY LINK_FLAGS "-fsanitize=address -fsanitize=undefined ")
+elseif(CLANG_TSAN)
+  message(STATUS "Enabling Clang thread sanitizer for nvim.")
+  set_property(TARGET nvim APPEND_STRING PROPERTY COMPILE_FLAGS "-fsanitize=thread ")
+  set_property(TARGET nvim APPEND_STRING PROPERTY LINK_FLAGS "-fsanitize=thread ")
 endif()
 
 add_library(libnvim STATIC EXCLUDE_FROM_ALL ${NEOVIM_GENERATED_SOURCES}
