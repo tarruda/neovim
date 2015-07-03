@@ -278,15 +278,19 @@ void event_signal_stop(Signal *signal)
 
 void event_close_handle(uv_handle_t *handle, event_handler cb)
 {
-  struct handle_wrapper wrapper = {.cb = cb};
-  event_call_async(event_close_handle_async, 2, handle, &wrapper);
+  struct handle_wrapper *wrapper = xmalloc(sizeof(struct handle_wrapper));
+  wrapper->cb = cb;
+  event_call_async(event_close_handle_async, 2, handle, wrapper);
 }
 
 static void handle_close(uv_handle_t *handle)
 {
   struct handle_wrapper *wrapper = handle->data;
-  if (wrapper->cb) {
-    wrapper->cb(wrapper->data);
+  event_handler cb = wrapper->cb;
+  void *data = wrapper->data;
+  free(wrapper);
+  if (cb) {
+    cb(data);
   }
 }
 

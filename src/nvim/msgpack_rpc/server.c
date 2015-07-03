@@ -191,8 +191,8 @@ int server_start(const char *endpoint)
         result = -ENOENT;
       }
     }
-    event_close_handle((uv_handle_t *)stream, free);
     ELOG("Failed to start server: %s", uv_strerror(result));
+    event_close_handle((uv_handle_t *)stream, free);
     return result;
   }
 
