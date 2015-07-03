@@ -62,6 +62,7 @@
 #include "nvim/undo.h"
 #include "nvim/window.h"
 #include "nvim/os/event.h"
+#include "nvim/os/input.h"
 #include "nvim/os/time.h"
 
 /*
@@ -487,7 +488,12 @@ normal_cmd (
   /*
    * Get the command character from the user.
    */
-  if ((c = safe_vgetc()) == K_EVENT) {
+  input_enable_events();
+  c = safe_vgetc();
+  input_disable_events();
+
+  if (c == K_EVENT) {
+    event_process_one(0);
     return;
   }
 

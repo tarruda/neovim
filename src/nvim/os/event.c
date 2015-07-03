@@ -125,7 +125,7 @@ void event_push(event_handler handler, void *data)
 /// in future calls to skip traversing through previous events that are known
 /// to not match the filter.
 void *event_poll(void *start, int timeout, EventFilter *filter)
-  FUNC_ATTR_NONNULL_ARG(3)
+  // FUNC_ATTR_NONNULL_ARG(3)
 {
   static int recursive = 0;
   if (recursive++) {

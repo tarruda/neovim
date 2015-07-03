@@ -601,12 +601,15 @@ edit (
      * Get a character for Insert mode.  Ignore K_IGNORE.
      */
     lastc = c;                          /* remember previous char for CTRL-D */
+    input_enable_events();
     do {
       c = safe_vgetc();
     } while (c == K_IGNORE);
+    input_disable_events();
 
     if (c == K_EVENT) {
       c = lastc;
+      event_process_one(0);
       continue;
     }
 

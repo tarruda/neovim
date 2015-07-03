@@ -69,6 +69,7 @@
 #include "nvim/window.h"
 #include "nvim/fileio.h"
 #include "nvim/os/event.h"
+#include "nvim/os/input.h"
 #include "nvim/api/private/helpers.h"
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
@@ -177,6 +178,7 @@ void terminal_init(void)
 void terminal_teardown(void)
 {
   event_timer_stop(&refresh_timer);
+  event_close_handle((uv_handle_t *)&refresh_timer, NULL);
   pmap_free(ptr_t)(invalidated_terminals);
   map_free(int, int)(color_indexes);
 }
@@ -352,7 +354,9 @@ void terminal_enter(void)
   bool got_bs = false;  // True if the last input was <C-\>
 
   while (term->buf == curbuf) {
+    input_enable_events();
     c = safe_vgetc();
+    input_disable_events();
 
     switch (c) {
       case K_LEFTMOUSE:
@@ -372,6 +376,7 @@ void terminal_enter(void)
         break;
 
       case K_EVENT:
+        event_process_one(0);
         break;
 
       case Ctrl_N:

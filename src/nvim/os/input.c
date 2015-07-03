@@ -36,6 +36,7 @@ static bool input_eof = false;
 static bool interrupted = false;
 static int global_fd = 0;
 static uv_mutex_t input_mutex;
+static int events_enabled = 0;
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "os/input.c.generated.h"
@@ -127,8 +128,8 @@ int os_inchar(uint8_t *buf, int maxlen, int ms, int tb_change_cnt)
     return rv;
   }
 
-  // If there are unsafe events, return the keys directly
-  if (event_has_pending()) {
+  // Return K_EVENT to signal callers that events can be processed
+  if (pending_events()) {
     return push_event_key(buf, maxlen);
   }
 
@@ -208,6 +209,16 @@ size_t input_enqueue(String keys)
   event_push(NULL, NULL);
   uv_mutex_unlock(&input_mutex);
   return rv;
+}
+
+void input_enable_events(void)
+{
+  events_enabled++;
+}
+
+void input_disable_events(void)
+{
+  events_enabled--;
 }
 
 // Mouse event handling code(Extract row/col if available and detect multiple
@@ -387,7 +398,7 @@ static bool input_ready(void)
   uv_mutex_lock(&input_mutex);
   received_input = rbuffer_size(input_buffer) != 0;
   uv_mutex_unlock(&input_mutex);
-  return received_input || event_has_pending();
+  return received_input || pending_events();
 }
 
 // Exit because of an input read error.
@@ -398,3 +409,9 @@ static void read_error_exit(void)
   STRCPY(IObuff, _("Vim: Error reading input, exiting...\n"));
   preserve_exit();
 }
+
+static bool pending_events(void)
+{
+  return events_enabled && event_has_pending();
+}
+

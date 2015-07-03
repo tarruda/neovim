@@ -36,6 +36,7 @@ typedef struct signal {
   signal_event_handler cb;
 } Signal;
 
+#define event_process_one(timeout) event_poll(NULL, timeout, NULL)
 
 // Poll for events until a condition or timeout
 #define event_poll_until(timeout, condition, filter)                         \
