@@ -40,6 +40,7 @@ static int deferred_events_allowed = 0;
 
 void event_init(void)
 {
+  loop_init(&loop, NULL);
   // Initialize the event queues
   deferred_events = kl_init(Event);
   immediate_events = kl_init(Event);
@@ -76,12 +77,7 @@ void event_teardown(void)
   signal_teardown();
   terminal_teardown();
 
-  // this last `uv_run` will return after all handles are stopped, it will
-  // also take care of finishing any uv_close calls made by other *_teardown
-  // functions.
-  do {
-    uv_run(uv_default_loop(), UV_RUN_DEFAULT);
-  } while (uv_loop_close(uv_default_loop()));
+  loop_close(&loop);
 }
 
 // Wait for some event
@@ -93,28 +89,32 @@ void event_poll(int ms)
     abort();  // Should not re-enter uv_run
   }
 
-  uv_run_mode run_mode = UV_RUN_ONCE;
+  bool wait = true;
   uv_timer_t timer;
 
   if (ms > 0) {
-    uv_timer_init(uv_default_loop(), &timer);
+    uv_timer_init(&loop.uv, &timer);
     // Use a repeating timeout of ms milliseconds to make sure
     // we do not block indefinitely for I/O.
     uv_timer_start(&timer, timer_cb, (uint64_t)ms, (uint64_t)ms);
   } else if (ms == 0) {
     // For ms == 0, we need to do a non-blocking event poll by
     // setting the run mode to UV_RUN_NOWAIT.
-    run_mode = UV_RUN_NOWAIT;
+    wait = false;
   }
 
-  loop(run_mode);
+  if (wait) {
+    loop_run_once(&loop);
+  } else {
+    loop_run_nowait(&loop);
+  }
 
   if (ms > 0) {
     // Ensure the timer handle is closed and run the event loop
     // once more to let libuv perform it's cleanup
     uv_timer_stop(&timer);
     uv_close((uv_handle_t *)&timer, NULL);
-    loop(UV_RUN_NOWAIT);
+    loop_run_nowait(&loop);
   }
 
   recursive--;  // Can re-enter uv_run now
@@ -148,7 +148,7 @@ void event_push(Event event, bool deferred)
   // of the queues, the event would only be processed after the poll
   // returns(user hits a key for example). To avoid this scenario, we call
   // uv_stop when a event is enqueued.
-  uv_stop(uv_default_loop());
+  loop_stop(&loop);
   kl_push(Event, deferred ? deferred_events : immediate_events, event);
 }
 
@@ -167,11 +167,4 @@ static void process_events_from(klist_t(Event) *queue)
 
 static void timer_cb(uv_timer_t *handle)
 {
-}
-
-static void loop(uv_run_mode run_mode)
-{
-  DLOG("Enter event loop");
-  uv_run(uv_default_loop(), run_mode);
-  DLOG("Exit event loop");
 }
