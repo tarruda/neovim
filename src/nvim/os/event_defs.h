@@ -4,7 +4,7 @@
 #include <stdbool.h>
 
 #include "nvim/os/job_defs.h"
-#include "nvim/os/rstream_defs.h"
+#include "nvim/event/rstream.h"
 
 typedef struct event Event;
 typedef void (*event_handler)(Event event);

@@ -12,8 +12,6 @@
 #include "nvim/msgpack_rpc/server.h"
 #include "nvim/msgpack_rpc/helpers.h"
 #include "nvim/os/signal.h"
-#include "nvim/os/rstream.h"
-#include "nvim/os/wstream.h"
 #include "nvim/os/job.h"
 #include "nvim/vim.h"
 #include "nvim/memory.h"
