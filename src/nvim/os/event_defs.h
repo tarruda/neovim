@@ -3,7 +3,6 @@
 
 #include <stdbool.h>
 
-#include "nvim/os/job_defs.h"
 #include "nvim/event/rstream.h"
 
 typedef struct event Event;

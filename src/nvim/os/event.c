@@ -7,12 +7,12 @@
 
 #include "nvim/os/event.h"
 #include "nvim/os/input.h"
+#include "nvim/event/process.h"
 #include "nvim/msgpack_rpc/defs.h"
 #include "nvim/msgpack_rpc/channel.h"
 #include "nvim/msgpack_rpc/server.h"
 #include "nvim/msgpack_rpc/helpers.h"
 #include "nvim/os/signal.h"
-#include "nvim/os/job.h"
 #include "nvim/vim.h"
 #include "nvim/memory.h"
 #include "nvim/misc2.h"
@@ -51,8 +51,6 @@ void event_init(void)
   // `event_poll`
   // Signals
   signal_init();
-  // Jobs
-  job_init();
   // finish mspgack-rpc initialization
   channel_init();
   server_init();
@@ -70,7 +68,7 @@ void event_teardown(void)
   process_events_from(deferred_events);
   input_stop();
   channel_teardown();
-  job_teardown();
+  process_teardown(&loop);
   server_teardown();
   signal_teardown();
   terminal_teardown();

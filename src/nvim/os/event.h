@@ -5,7 +5,6 @@
 #include <stdbool.h>
 
 #include "nvim/os/event_defs.h"
-#include "nvim/os/job_defs.h"
 #include "nvim/os/time.h"
 
 // Poll for events until a condition or timeout
