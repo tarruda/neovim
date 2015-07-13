@@ -10702,19 +10702,17 @@ static void f_jobclose(typval_T *argvars, typval_T *rettv)
   if (argvars[1].v_type == VAR_STRING) {
     char *stream = (char *)argvars[1].vval.v_string;
     if (!strcmp(stream, "stdin")) {
-      stream_close(proc->in, NULL);
+      process_close_in(proc);
       data->stdin_closed = true;
     } else if (!strcmp(stream, "stdout")) {
-      stream_close(proc->out, NULL);
+      process_close_out(proc);
     } else if (!strcmp(stream, "stderr")) {
-      stream_close(proc->err, NULL);
+      process_close_err(proc);
     } else {
       EMSG2(_("Invalid job stream \"%s\""), stream);
     }
   } else {
-    stream_close(proc->in, NULL);
-    stream_close(proc->out, NULL);
-    stream_close(proc->err, NULL);
+    process_close_streams(proc);
     data->stdin_closed = true;
   }
 }
@@ -15224,7 +15222,7 @@ static void f_termopen(typval_T *argvars, typval_T *rettv)
   if (!common_job_start(data, rettv)) {
     return;
   }
-  TerminalOptions topts = TERMINAL_OPTIONS_INIT;
+  TerminalOptions topts;
   topts.data = data;
   topts.width = curwin->w_width;
   topts.height = curwin->w_height;

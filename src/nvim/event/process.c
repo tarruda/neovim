@@ -117,6 +117,7 @@ void process_teardown(Loop *loop) FUNC_ATTR_NONNULL_ALL
   pty_process_teardown(loop);
 }
 
+// Wrappers around `stream_close` that protect against double-closing.
 void process_close_streams(Process *proc) FUNC_ATTR_NONNULL_ALL
 {
   process_close_in(proc);
@@ -133,7 +134,6 @@ void process_close_out(Process *proc) FUNC_ATTR_NONNULL_ALL
 {
   CLOSE_PROC_STREAM(proc, out);
 }
-
 
 void process_close_err(Process *proc) FUNC_ATTR_NONNULL_ALL
 {
