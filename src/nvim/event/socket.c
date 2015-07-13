@@ -33,10 +33,7 @@ void socket_watcher_init(Loop *loop, SocketWatcher *watcher,
   }
 
   bool tcp = true;
-  char ip[16], *ip_end = strrchr(watcher->addr, ':');
-  if (!ip_end) {
-    ip_end = strchr(watcher->addr, NUL);
-  }
+  char ip[16], *ip_end = xstrchrnul(watcher->addr, ':');
 
   // (ip_end - addr) is always > 0, so convert to size_t
   size_t addr_len = (size_t)(ip_end - watcher->addr);
