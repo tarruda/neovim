@@ -93,6 +93,7 @@ error:
   }
   if (child != pid) {
     kill(pid, SIGKILL);
+    waitpid(pid, NULL, 0);
   }
 
   return false;
