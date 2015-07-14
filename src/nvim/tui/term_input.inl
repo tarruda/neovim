@@ -206,6 +206,8 @@ static bool handle_forced_escape(TermInput *input)
   return false;
 }
 
+static void restart_reading(Event event);
+
 static void read_cb(Stream *stream, RBuffer *buf, void *data, bool eof)
 {
   TermInput *input = data;
@@ -224,8 +226,7 @@ static void read_cb(Stream *stream, RBuffer *buf, void *data, bool eof)
       // ls *.md | xargs nvim
       input->in_fd = 2;
       stream_close(&input->read_stream, NULL);
-      rstream_init_fd(&loop, &input->read_stream, input->in_fd, 0xfff, input);
-      rstream_start(&input->read_stream, read_cb);
+      event_push((Event) { .data = input, .handler = restart_reading }, false);
     } else {
       input_done();
     }
@@ -268,6 +269,13 @@ static void read_cb(Stream *stream, RBuffer *buf, void *data, bool eof)
   // Make sure the next input escape sequence fits into the ring buffer
   // without wrap around, otherwise it could be misinterpreted.
   rbuffer_reset(input->read_stream.buffer);
+}
+
+static void restart_reading(Event event)
+{
+  TermInput *input = event.data;
+  rstream_init_fd(&loop, &input->read_stream, input->in_fd, 0xfff, input);
+  rstream_start(&input->read_stream, read_cb);
 }
 
 static TermInput *term_input_new(void)
