@@ -113,7 +113,7 @@ void process_teardown(Loop *loop) FUNC_ATTR_NONNULL_ALL
   }
 
   // Wait until all children exit
-  event_poll_until(-1, !loop->children_stop_requests);
+  event_poll_until(-1, kl_empty(loop->children));
   pty_process_teardown(loop);
 }
 
