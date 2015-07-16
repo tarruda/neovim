@@ -99,6 +99,7 @@ bool process_spawn(Loop *loop, Process *proc) FUNC_ATTR_NONNULL_ALL
 
   proc->internal_exit_cb = on_process_exit;
   proc->internal_close_cb = decref;
+  proc->refcount++;
   kl_push(WatcherPtr, loop->children, proc);
   return true;
 }

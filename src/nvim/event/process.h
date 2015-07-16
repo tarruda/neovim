@@ -36,7 +36,7 @@ static inline Process process_init(ProcessType type, void *data)
     .loop = NULL,
     .pid = 0,
     .status = 0,
-    .refcount = 1,
+    .refcount = 0,
     .stopped_time = 0,
     .argv = NULL,
     .in = NULL,

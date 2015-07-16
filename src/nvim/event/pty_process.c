@@ -112,7 +112,9 @@ void pty_process_close(PtyProcess *ptyproc)
 {
   pty_process_close_master(ptyproc);
   Process *proc = (Process *)ptyproc;
-  proc->internal_close_cb(proc);
+  if (proc->internal_close_cb) {
+    proc->internal_close_cb(proc);
+  }
 }
 
 void pty_process_close_master(PtyProcess *ptyproc) FUNC_ATTR_NONNULL_ALL

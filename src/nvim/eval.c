@@ -453,7 +453,6 @@ typedef struct {
   Terminal *term;
   bool stopped;
   bool exited;
-  bool stdin_closed;
   int refcount;
   ufunc_T *on_stdout, *on_stderr, *on_exit;
   dict_T *self;
@@ -10703,7 +10702,6 @@ static void f_jobclose(typval_T *argvars, typval_T *rettv)
     char *stream = (char *)argvars[1].vval.v_string;
     if (!strcmp(stream, "stdin")) {
       process_close_in(proc);
-      data->stdin_closed = true;
     } else if (!strcmp(stream, "stdout")) {
       process_close_out(proc);
     } else if (!strcmp(stream, "stderr")) {
@@ -10713,7 +10711,6 @@ static void f_jobclose(typval_T *argvars, typval_T *rettv)
     }
   } else {
     process_close_streams(proc);
-    data->stdin_closed = true;
   }
 }
 
@@ -10740,7 +10737,7 @@ static void f_jobsend(typval_T *argvars, typval_T *rettv)
     return;
   }
 
-  if (data->stdin_closed) {
+  if (((Process *)&data->proc)->in->closed) {
     EMSG(_("Can't send data to the job: stdin is closed"));
     return;
   }
