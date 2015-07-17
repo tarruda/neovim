@@ -44,7 +44,9 @@ static inline Process process_init(ProcessType type, void *data)
     .err = NULL,
     .cb = NULL,
     .closed = false,
-    .term_sent = false
+    .term_sent = false,
+    .internal_close_cb = NULL,
+    .internal_exit_cb = NULL
   };
 }
 
