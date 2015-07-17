@@ -139,7 +139,9 @@ end
 do
   local main = cimport('./src/nvim/main.h')
   local time = cimport('./src/nvim/os/time.h')
+  local log = cimport('./src/nvim/log.h')
   time.time_init()
+  log.log_init()
   main.early_init()
 end
 

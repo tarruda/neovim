@@ -810,6 +810,8 @@ static void decref(Channel *channel)
   }
 }
 
+#ifndef DISABLE_LOG
+
 #if MIN_LOG_LEVEL <= DEBUG_LOG_LEVEL
 #define REQ "[request]      "
 #define RES "[response]     "
@@ -823,6 +825,7 @@ static void log_server_msg(uint64_t channel_id,
   msgpack_unpack_next(&unpacked, packed->data, packed->size, NULL);
   uint64_t type = unpacked.data.via.array.ptr[0].via.u64;
   DLOGN("[msgpack-rpc] nvim -> client(%" PRIu64 ") ", channel_id);
+  log_lock();
   FILE *f = open_log_file();
   fprintf(f, type ? (type == 1 ? RES : NOT) : REQ);
   log_msg_close(f, unpacked.data);
@@ -834,6 +837,7 @@ static void log_client_msg(uint64_t channel_id,
                            msgpack_object msg)
 {
   DLOGN("[msgpack-rpc] client(%" PRIu64 ") -> nvim ", channel_id);
+  log_lock();
   FILE *f = open_log_file();
   fprintf(f, is_request ? REQ : RES);
   log_msg_close(f, msg);
@@ -845,6 +849,7 @@ static void log_msg_close(FILE *f, msgpack_object msg)
   fputc('\n', f);
   fflush(f);
   fclose(f);
+  log_unlock();
 }
 #endif
-
+#endif

@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include <uv.h>
+
 #include "nvim/log.h"
 #include "nvim/types.h"
 #include "nvim/os/os.h"
@@ -24,24 +26,47 @@
 # include "log.c.generated.h"
 #endif
 
+static uv_mutex_t log_mutex;
+
+void log_init(void)
+{
+  uv_mutex_init(&log_mutex);
+}
+
+void log_lock(void)
+{
+  uv_mutex_lock(&log_mutex);
+}
+
+void log_unlock(void)
+{
+  uv_mutex_unlock(&log_mutex);
+}
+
 bool do_log(int log_level, const char *func_name, int line_num, bool eol,
             const char* fmt, ...) FUNC_ATTR_UNUSED
 {
+  log_lock();
   FILE *log_file = open_log_file();
+  bool ret;
 
   if (log_file == NULL) {
-    return false;
+    ret = false;
+    goto end;
   }
 
   va_list args;
   va_start(args, fmt);
-  bool ret = v_do_log_to_file(log_file, log_level, func_name, line_num, eol,
-                              fmt, args);
+  ret = v_do_log_to_file(log_file, log_level, func_name, line_num, eol, fmt,
+      args);
   va_end(args);
 
   if (log_file != stderr && log_file != stdout) {
     fclose(log_file);
   }
+
+end:
+  log_unlock();
   return ret;
 }
 
