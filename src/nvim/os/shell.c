@@ -8,7 +8,7 @@
 #include "nvim/ascii.h"
 #include "nvim/lib/kvec.h"
 #include "nvim/log.h"
-#include "nvim/os/event.h"
+#include "nvim/event/loop.h"
 #include "nvim/event/uv_process.h"
 #include "nvim/event/rstream.h"
 #include "nvim/os/shell.h"
@@ -212,7 +212,7 @@ static int do_os_system(char **argv,
   proc->out = &out;
   proc->err = &err;
   if (!process_spawn(&loop, proc)) {
-    event_poll(0);
+    loop_poll_events(&loop, 0);
     // Failed, probably due to `sh` not being executable
     if (!silent) {
       MSG_PUTS(_("\nCannot execute "));
@@ -243,7 +243,7 @@ static int do_os_system(char **argv,
     wstream_set_write_cb(&in, shell_write_cb);
   }
 
-  // invoke busy_start here so event_poll_until wont change the busy state for
+  // invoke busy_start here so POLL_EVENTS_UNTIL wont change the busy state for
   // the UI
   ui_busy_start();
   ui_flush();

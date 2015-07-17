@@ -67,7 +67,7 @@
 #include "nvim/ex_cmds.h"
 #include "nvim/window.h"
 #include "nvim/fileio.h"
-#include "nvim/os/event.h"
+#include "nvim/event/loop.h"
 #include "nvim/event/time.h"
 #include "nvim/api/private/helpers.h"
 
@@ -354,13 +354,13 @@ void terminal_enter(bool process_deferred)
 
   while (term->buf == curbuf) {
     if (process_deferred) {
-      event_enable_deferred();
+      loop_enable_deferred_events(&loop);
     }
 
     c = safe_vgetc();
 
     if (process_deferred) {
-      event_disable_deferred();
+      loop_disable_deferred_events(&loop);
     }
 
     switch (c) {
@@ -381,7 +381,7 @@ void terminal_enter(bool process_deferred)
         break;
 
       case K_EVENT:
-        event_process();
+        loop_process_event(&loop);
         break;
 
       case Ctrl_N:
@@ -886,7 +886,7 @@ static void invalidate_terminal(Terminal *term, int start_row, int end_row)
 // event.
 static void refresh_timer_cb(TimeWatcher *watcher, void *data)
 {
-  event_push((Event) {.handler = on_refresh}, false);
+  loop_push_event(&loop, (Event) {.handler = on_refresh}, false);
   refresh_pending = false;
 }
 

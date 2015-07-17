@@ -226,7 +226,8 @@ static void read_cb(Stream *stream, RBuffer *buf, void *data, bool eof)
       // ls *.md | xargs nvim
       input->in_fd = 2;
       stream_close(&input->read_stream, NULL);
-      event_push((Event) { .data = input, .handler = restart_reading }, false);
+      loop_push_event(&loop,
+          (Event) { .data = input, .handler = restart_reading }, false);
     } else {
       input_done();
     }
@@ -311,7 +312,8 @@ static void term_input_destroy(TermInput *input)
   rstream_stop(&input->read_stream);
   stream_close(&input->read_stream, NULL);
   termkey_destroy(input->tk);
-  event_poll(0);  // Run once to remove references to input/timer handles
+  // Run once to remove references to input/timer handles
+  loop_poll_events(&loop, 0);
   xfree(input);
 }
 

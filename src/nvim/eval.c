@@ -93,7 +93,7 @@
 #include "nvim/api/private/helpers.h"
 #include "nvim/api/vim.h"
 #include "nvim/os/dl.h"
-#include "nvim/os/event.h"
+#include "nvim/event/loop.h"
 #include "nvim/os/input.h"
 
 #define DICT_MAXNEST 100        /* maximum nesting of lists and dicts */
@@ -10957,7 +10957,7 @@ static void f_jobwait(typval_T *argvars, typval_T *rettv)
   if (!disable_job_defer++) {
     // process any pending job events in the deferred queue, but only do this if
     // deferred is not disabled(at the top-level `jobwait()` call)
-    event_process();
+    loop_process_event(&loop);
   }
   // For each item in the input list append an integer to the output list. -3
   // is used to represent an invalid job id, -2 is for a interrupted job and
@@ -11013,7 +11013,7 @@ static void f_jobwait(typval_T *argvars, typval_T *rettv)
   }
 
   // poll to ensure any pending callbacks from the last job are invoked
-  event_poll(0);
+  loop_poll_events(&loop, 0);
 
   for (listitem_T *arg = args->lv_first; arg != NULL; arg = arg->li_next) {
     TerminalJobData *data = NULL;
@@ -20327,7 +20327,7 @@ static inline void push_job_event(TerminalJobData *data, ufunc_T *callback,
   event_data->data = data;
   event_data->callback = callback;
   event_data->type = type;
-  event_push((Event) {
+  loop_push_event(&loop, (Event) {
     .handler = on_job_event,
     .data = event_data
   }, !disable_job_defer);

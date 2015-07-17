@@ -4,7 +4,6 @@
 #include <uv.h>
 
 #include "nvim/os/shell.h"
-#include "nvim/os/event.h"
 #include "nvim/event/loop.h"
 #include "nvim/event/rstream.h"
 #include "nvim/event/wstream.h"
@@ -114,7 +113,7 @@ void process_teardown(Loop *loop) FUNC_ATTR_NONNULL_ALL
   }
 
   // Wait until all children exit
-  event_poll_until(-1, kl_empty(loop->children));
+  POLL_EVENTS_UNTIL(loop, -1, kl_empty(loop->children));
   pty_process_teardown(loop);
 }
 
@@ -160,7 +159,7 @@ int process_wait(Process *proc, int ms) FUNC_ATTR_NONNULL_ALL
   // Increase refcount to stop the exit callback from being called(and possibly
   // being freed) before we have a chance to get the status.
   proc->refcount++;
-  event_poll_until(ms,
+  POLL_EVENTS_UNTIL(proc->loop, ms,
       // Until...
       got_int ||             // interrupted by the user
       proc->refcount == 1);  // job exited
@@ -175,9 +174,9 @@ int process_wait(Process *proc, int ms) FUNC_ATTR_NONNULL_ALL
       // We can only return, if all streams/handles are closed and the job
 
       // exited.
-      event_poll_until(-1, proc->refcount == 1);
+      POLL_EVENTS_UNTIL(proc->loop, -1, proc->refcount == 1);
     } else {
-      event_poll(0);
+      loop_poll_events(proc->loop, 0);
     }
   }
 
@@ -299,7 +298,8 @@ static void on_process_exit(Process *proc)
   if (exiting) {
     on_process_exit_event((Event) {.data = proc});
   } else {
-    event_push((Event) {.handler = on_process_exit_event, .data = proc}, false);
+    loop_push_event(proc->loop,
+        (Event) {.handler = on_process_exit_event, .data = proc}, false);
   }
 
   Loop *loop = proc->loop;

@@ -13,7 +13,7 @@
 #include "nvim/misc2.h"
 #include "nvim/event/signal.h"
 #include "nvim/os/signal.h"
-#include "nvim/os/event.h"
+#include "nvim/event/loop.h"
 
 static SignalWatcher spipe, shup, squit, sterm;
 #ifdef SIGPWR
@@ -115,7 +115,7 @@ static void deadly_signal(int signum)
 static void on_signal(SignalWatcher *handle, int signum, void *data)
 {
   assert(signum >= 0);
-  event_push((Event) {
+  loop_push_event(&loop, (Event) {
     .handler = on_signal_event,
     .data = (void *)(uintptr_t)signum
   }, false);

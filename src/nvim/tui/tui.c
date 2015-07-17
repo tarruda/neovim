@@ -13,7 +13,7 @@
 #include "nvim/memory.h"
 #include "nvim/api/vim.h"
 #include "nvim/api/private/helpers.h"
-#include "nvim/os/event.h"
+#include "nvim/event/loop.h"
 #include "nvim/event/signal.h"
 #include "nvim/tui/tui.h"
 #include "nvim/strings.h"
@@ -209,9 +209,10 @@ static void try_resize(Event ev)
 
 static void sigwinch_cb(SignalWatcher *watcher, int signum, void *data)
 {
-  // Queue the event because resizing can result in recursive event_poll calls
-  // FIXME(blueyed): TUI does not resize properly when not deferred. Why? #2322
-  event_push((Event) {
+  // Queue the event because resizing can result in recursive loop_poll_events
+  // calls FIXME(blueyed): TUI does not resize properly when not deferred. Why?
+  // #2322
+  loop_push_event(&loop, (Event) {
     .data = data,
     .handler = try_resize
   }, true);
