@@ -2,6 +2,8 @@
 #include <stddef.h>
 #include <string.h>
 
+#include <uv.h>
+
 #include "nvim/memory.h"
 #include "nvim/vim.h"
 #include "nvim/rbuffer.h"
@@ -24,27 +26,27 @@ RBuffer *rbuffer_new(size_t capacity)
   rv->size = 0;
   rv->write_ptr = rv->read_ptr = rv->start_ptr;
   rv->end_ptr = rv->start_ptr + capacity;
+  uv_mutex_init(&rv->mutex);
   return rv;
 }
 
 void rbuffer_free(RBuffer *buf)
 {
+  uv_mutex_destroy(&buf->mutex);
   xfree(buf);
 }
 
 size_t rbuffer_size(RBuffer *buf) FUNC_ATTR_NONNULL_ALL
 {
-  return buf->size;
-}
-
-size_t rbuffer_capacity(RBuffer *buf) FUNC_ATTR_NONNULL_ALL
-{
-  return (size_t)(buf->end_ptr - buf->start_ptr);
+  uv_mutex_lock(&buf->mutex);
+  size_t rv = buf->size;
+  uv_mutex_unlock(&buf->mutex);
+  return rv;
 }
 
 size_t rbuffer_space(RBuffer *buf) FUNC_ATTR_NONNULL_ALL
 {
-  return rbuffer_capacity(buf) - buf->size;
+  return rbuffer_capacity(buf) - rbuffer_size(buf);
 }
 
 /// Return a pointer to a raw buffer containing the first empty slot available
@@ -55,9 +57,12 @@ size_t rbuffer_space(RBuffer *buf) FUNC_ATTR_NONNULL_ALL
 /// used. See RBUFFER_UNTIL_FULL for a macro that simplifies this task.
 char *rbuffer_write_ptr(RBuffer *buf, size_t *write_count) FUNC_ATTR_NONNULL_ALL
 {
+  char *rv = NULL;
+  uv_mutex_lock(&buf->mutex);
+
   if (buf->size == rbuffer_capacity(buf)) {
     *write_count = 0;
-    return NULL;
+    goto end;
   }
 
   if (buf->write_ptr >= buf->read_ptr) {
@@ -66,7 +71,11 @@ char *rbuffer_write_ptr(RBuffer *buf, size_t *write_count) FUNC_ATTR_NONNULL_ALL
     *write_count = (size_t)(buf->read_ptr - buf->write_ptr);
   }
 
-  return buf->write_ptr;
+  rv = buf->write_ptr;
+
+end:
+  uv_mutex_unlock(&buf->mutex);
+  return rv;
 }
 
 // Set read and write pointer for an empty RBuffer to the beginning of the
@@ -84,7 +93,8 @@ void rbuffer_reset(RBuffer *buf) FUNC_ATTR_NONNULL_ALL
 /// buffer. The write pointer will be wrapped if required.
 void rbuffer_produced(RBuffer *buf, size_t count) FUNC_ATTR_NONNULL_ALL
 {
-  assert(count && count <= rbuffer_space(buf));
+  uv_mutex_lock(&buf->mutex);
+  assert(count && count <= rbuffer_space_unsafe(buf));
 
   buf->write_ptr += count;
   if (buf->write_ptr >= buf->end_ptr) {
@@ -93,9 +103,10 @@ void rbuffer_produced(RBuffer *buf, size_t count) FUNC_ATTR_NONNULL_ALL
   }
 
   buf->size += count;
-  if (buf->full_cb && !rbuffer_space(buf)) {
+  if (buf->full_cb && !rbuffer_space_unsafe(buf)) {
     buf->full_cb(buf, buf->data);
   }
+  uv_mutex_unlock(&buf->mutex);
 }
 
 /// Return a pointer to a raw buffer containing the first byte available
@@ -106,9 +117,12 @@ void rbuffer_produced(RBuffer *buf, size_t count) FUNC_ATTR_NONNULL_ALL
 /// were read. See RBUFFER_UNTIL_EMPTY for a macro that simplifies this task.
 char *rbuffer_read_ptr(RBuffer *buf, size_t *read_count) FUNC_ATTR_NONNULL_ALL
 {
+  char *rv = NULL;
+  uv_mutex_lock(&buf->mutex);
+
   if (!buf->size) {
     *read_count = 0;
-    return NULL;
+    goto end;
   }
 
   if (buf->read_ptr < buf->write_ptr) {
@@ -117,7 +131,11 @@ char *rbuffer_read_ptr(RBuffer *buf, size_t *read_count) FUNC_ATTR_NONNULL_ALL
     *read_count = (size_t)(buf->end_ptr - buf->read_ptr);
   }
 
-  return buf->read_ptr;
+  rv = buf->read_ptr;
+
+end:
+  uv_mutex_unlock(&buf->mutex);
+  return rv;
 }
 
 /// Adjust `rbuffer` read pointer to reflect consumed data. This is called
@@ -127,6 +145,7 @@ char *rbuffer_read_ptr(RBuffer *buf, size_t *read_count) FUNC_ATTR_NONNULL_ALL
 void rbuffer_consumed(RBuffer *buf, size_t count)
   FUNC_ATTR_NONNULL_ALL
 {
+  uv_mutex_lock(&buf->mutex);
   assert(count && count <= buf->size);
 
   buf->read_ptr += count;
@@ -139,6 +158,7 @@ void rbuffer_consumed(RBuffer *buf, size_t count)
   if (buf->nonfull_cb && was_full) {
     buf->nonfull_cb(buf, buf->data);
   }
+  uv_mutex_unlock(&buf->mutex);
 }
 
 // Higher level functions for copying from/to RBuffer instances and data
@@ -210,5 +230,15 @@ int rbuffer_cmp(RBuffer *buf, const char *str, size_t count)
   }
 
   return memcmp(str + n, buf->start_ptr, count);
+}
+
+static size_t rbuffer_capacity(RBuffer *buf) FUNC_ATTR_NONNULL_ALL
+{
+  return (size_t)(buf->end_ptr - buf->start_ptr);
+}
+
+static size_t rbuffer_space_unsafe(RBuffer *buf) FUNC_ATTR_NONNULL_ALL
+{
+  return rbuffer_capacity(buf) - buf->size;
 }
 
