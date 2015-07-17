@@ -1,0 +1,83 @@
+local helpers = require("test.unit.helpers")
+
+local ffi     = helpers.ffi
+local eq      = helpers.eq
+
+local queue = helpers.cimport("./test/unit/fixtures/queue.h")
+
+describe('queue', function()
+  local parent, child1, child2, child3
+
+  local function push(q, str)
+    queue.ut_queue_push(q, str)
+  end
+
+  local function remove(q)
+    return ffi.string(queue.ut_queue_remove(q))
+  end
+
+  before_each(function()
+    parent = queue.ut_queue_new(ffi.NULL)
+    child1 = queue.ut_queue_new(parent)
+    child2 = queue.ut_queue_new(parent)
+    child3 = queue.ut_queue_new(parent)
+    push(child1, 'c1i1')
+    push(child1, 'c1i2')
+    push(child2, 'c2i1')
+    push(child1, 'c1i3')
+    push(child2, 'c2i2')
+    push(child2, 'c2i3')
+    push(child2, 'c2i4')
+    push(child3, 'c3i1')
+    push(child3, 'c3i2')
+  end)
+
+  it('counts', function()
+    eq(9, parent.items.size)
+    eq(3, child1.items.size)
+    eq(4, child2.items.size)
+    eq(2, child3.items.size)
+  end)
+
+  it('removing from parent removes from child', function()
+    eq('c1i1', remove(parent))
+    eq('c1i2', remove(parent))
+    eq('c2i1', remove(parent))
+    eq(6, parent.items.size)
+    eq(1, child1.items.size)
+    eq(3, child2.items.size)
+    eq(2, child3.items.size)
+    eq('c1i3', remove(parent))
+    eq('c2i2', remove(parent))
+    eq('c2i3', remove(parent))
+    eq('c2i4', remove(parent))
+    eq(2, parent.items.size)
+    eq(0, child1.items.size)
+    eq(0, child2.items.size)
+    eq(2, child3.items.size)
+  end)
+
+  it('removing from child removes from parent', function()
+    eq('c2i1', remove(child2))
+    eq('c2i2', remove(child2))
+    eq('c1i1', remove(child1))
+    eq(6, parent.items.size)
+    eq(2, child1.items.size)
+    eq(2, child2.items.size)
+    eq(2, child3.items.size)
+    eq('c1i2', remove(parent))
+    eq('c1i3', remove(parent))
+    eq('c2i3', remove(parent))
+    eq('c2i4', remove(parent))
+    eq(2, parent.items.size)
+    eq(0, child1.items.size)
+    eq(0, child2.items.size)
+    eq(2, child3.items.size)
+  end)
+
+  it('removing from child at the beginning of parent', function()
+    eq('c1i1', remove(child1))
+    eq('c1i2', remove(child1))
+    eq('c2i1', remove(parent))
+  end)
+end)
