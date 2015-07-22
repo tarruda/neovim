@@ -457,8 +457,16 @@ typedef struct {
   dict_T *self;
   int *status_ptr;
   uint64_t id;
+  Queue *events;
 } TerminalJobData;
 
+typedef struct {
+  TerminalJobData *data;
+  ufunc_T *callback;
+  const char *type;
+  list_T *received;
+  int status;
+} JobEvent;
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "eval.c.generated.h"
@@ -467,15 +475,6 @@ typedef struct {
 #define FNE_INCL_BR     1       /* find_name_end(): include [] in name */
 #define FNE_CHECK_START 2       /* find_name_end(): check name starts with
                                    valid character */
-// Memory pool for reusing JobEvent structures
-typedef struct {
-  TerminalJobData *data;
-  ufunc_T *callback;
-  const char *type;
-  list_T *received;
-  int status;
-} JobEvent;
-static int disable_job_defer = 0;
 static uint64_t current_job_id = 1;
 static PMap(uint64_t) *jobs = NULL; 
 
@@ -10931,15 +10930,6 @@ static void f_jobwait(typval_T *argvars, typval_T *rettv)
   list_T *rv = list_alloc();
 
   ui_busy_start();
-  // disable breakchecks, which could result in job callbacks being executed
-  // at unexpected places
-  disable_breakcheck++;
-  // disable job event deferring so the callbacks are processed while waiting.
-  if (!disable_job_defer++) {
-    // process any pending job events in the deferred queue, but only do this if
-    // deferred is not disabled(at the top-level `jobwait()` call)
-    loop_process_event(&loop);
-  }
   // For each item in the input list append an integer to the output list. -3
   // is used to represent an invalid job id, -2 is for a interrupted job and
   // -1 for jobs that were skipped or timed out.
@@ -11006,8 +10996,6 @@ static void f_jobwait(typval_T *argvars, typval_T *rettv)
     // job exits
     data->status_ptr = NULL;
   }
-  disable_job_defer--;
-  disable_breakcheck--;
   ui_busy_stop();
 
   rv->lv_refcount++;
@@ -20141,10 +20129,11 @@ static inline TerminalJobData *common_job_init(char **argv, ufunc_T *on_stdout,
   data->on_stderr = on_stderr;
   data->on_exit = on_exit;
   data->self = self;
+  data->events = queue_new_child(loop.events);
   if (pty) {
-    data->proc.pty = pty_process_init(data);
+    data->proc.pty = pty_process_init(&loop, data);
   } else {
-    data->proc.uv = uv_process_init(data);
+    data->proc.uv = uv_process_init(&loop, data);
   }
   Process *proc = (Process *)&data->proc;
   proc->argv = argv;
@@ -20152,6 +20141,7 @@ static inline TerminalJobData *common_job_init(char **argv, ufunc_T *on_stdout,
   proc->out = &data->out;
   proc->err = &data->err;
   proc->cb = on_process_exit;
+  proc->events = data->events;
   return data;
 }
 
@@ -20182,7 +20172,7 @@ static inline bool common_job_start(TerminalJobData *data, typval_T *rettv)
 {
   data->refcount++;
   Process *proc = (Process *)&data->proc;
-  if (!process_spawn(&loop, proc)) {
+  if (!process_spawn(proc)) {
     EMSG(_(e_jobexe));
     if (proc->type == kProcessTypePty) {
       xfree(data->proc.pty.term_name);
@@ -20221,17 +20211,18 @@ static inline void free_term_job_data(TerminalJobData *data) {
     data->self->internal_refcount--;
     dict_unref(data->self);
   }
+  queue_free(data->events);
   xfree(data);
 }
 
 // vimscript job callbacks must be executed on Nvim main loop
-static inline void push_job_event(TerminalJobData *data, ufunc_T *callback,
+static inline void process_job_event(TerminalJobData *data, ufunc_T *callback,
     const char *type, char *buf, size_t count, int status)
 {
-  JobEvent *event_data = xmalloc(sizeof(JobEvent));
-  event_data->received = NULL;
+  JobEvent event_data;
+  event_data.received = NULL;
   if (buf) {
-    event_data->received = list_alloc();
+    event_data.received = list_alloc();
     char *ptr = buf;
     size_t remaining = count;
     size_t off = 0;
@@ -20239,7 +20230,7 @@ static inline void push_job_event(TerminalJobData *data, ufunc_T *callback,
     while (off < remaining) {
       // append the line
       if (ptr[off] == NL) {
-        list_append_string(event_data->received, (uint8_t *)ptr, off);
+        list_append_string(event_data.received, (uint8_t *)ptr, off);
         size_t skip = off + 1;
         ptr += skip;
         remaining -= skip;
@@ -20252,17 +20243,14 @@ static inline void push_job_event(TerminalJobData *data, ufunc_T *callback,
       }
       off++;
     }
-    list_append_string(event_data->received, (uint8_t *)ptr, off);
+    list_append_string(event_data.received, (uint8_t *)ptr, off);
   } else {
-    event_data->status = status;
+    event_data.status = status;
   }
-  event_data->data = data;
-  event_data->callback = callback;
-  event_data->type = type;
-  loop_push_event(&loop, (Event) {
-    .handler = on_job_event,
-    .data = event_data
-  }, !disable_job_defer);
+  event_data.data = data;
+  event_data.callback = callback;
+  event_data.type = type;
+  on_job_event(&event_data);
 }
 
 static void on_job_stdout(Stream *stream, RBuffer *buf, void *job, bool eof)
@@ -20286,13 +20274,13 @@ static void on_job_output(Stream *stream, TerminalJobData *data, RBuffer *buf,
 
   RBUFFER_UNTIL_EMPTY(buf, ptr, len) {
     // The order here matters, the terminal must receive the data first because
-    // push_job_event will modify the read buffer(convert NULs into NLs)
+    // process_job_event will modify the read buffer(convert NULs into NLs)
     if (data->term) {
       terminal_receive(data->term, ptr, len);
     }
 
     if (callback) {
-      push_job_event(data, callback, type, ptr, len, 0);
+      process_job_event(data, callback, type, ptr, len, 0);
     }
 
     rbuffer_consumed(buf, len);
@@ -20312,7 +20300,7 @@ static void on_process_exit(Process *proc, int status, void *d)
     *data->status_ptr = status;
   }
 
-  push_job_event(data, data->on_exit, "exit", NULL, 0, status);
+  process_job_event(data, data->on_exit, "exit", NULL, 0, status);
 }
 
 static void term_write(char *buf, size_t size, void *d)
@@ -20346,10 +20334,8 @@ static void term_job_data_decref(TerminalJobData *data)
   }
 }
 
-static void on_job_event(Event event)
+static void on_job_event(JobEvent *ev)
 {
-  JobEvent *ev = event.data;
-
   if (!ev->callback) {
     goto end;
   }
@@ -20394,7 +20380,6 @@ end:
     pmap_del(uint64_t)(jobs, ev->data->id);
     term_job_data_decref(ev->data);
   }
-  xfree(ev);
 }
 
 static TerminalJobData *find_job(uint64_t id)
