@@ -129,17 +129,8 @@ void queue_put(Queue *queue, argv_callback cb, int argc, ...)
 {
   assert(queue);
   assert(queue->parent);  // don't push directly to the parent queue
-  assert(argc <= EVENT_HANDLER_MAX_ARGC);
   Event event;
-  event.handler = cb;
-  if (argc) {
-    va_list args;
-    va_start(args, argc);
-    for (int i = 0; i < argc; i++) {
-      event.argv[i] = va_arg(args, void *);
-    }
-    va_end(args);
-  }
+  VA_EVENT_INIT(&event, cb, argc);
   queue_push(queue, event);
   if (queue->parent->put_cb) {
     queue->parent->put_cb(queue->parent, queue->parent->data);
