@@ -180,5 +180,16 @@ static void read_event(void **argv)
 
 static void invoke_read_cb(Stream *stream, bool eof)
 {
+  if (!stream->read_cb) {
+    return;
+  }
+
+  if (stream->uvstream) {
+    Loop *loop = stream->uvstream->loop->data;
+    if (loop->fast_events == stream->events) {
+      stream->read_cb(stream, stream->buffer, stream->data, eof);
+      return;
+    }
+  }
   queue_put(stream->events, read_event, 2, stream, (void *)(uintptr_t)eof);
 }
