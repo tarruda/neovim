@@ -86,6 +86,7 @@ bool process_spawn(Process *proc) FUNC_ATTR_NONNULL_ALL
     stream_init(NULL, proc->out, -1, (uv_stream_t *)&proc->out->uv.pipe, data);
     proc->out->events = proc->events;
     proc->out->internal_data = proc;
+    proc->out->internal_eof_cb = on_process_stream_eof;
     proc->out->internal_close_cb = on_process_stream_close;
     proc->refcount++;
   }
@@ -94,6 +95,7 @@ bool process_spawn(Process *proc) FUNC_ATTR_NONNULL_ALL
     stream_init(NULL, proc->err, -1, (uv_stream_t *)&proc->err->uv.pipe, data);
     proc->err->events = proc->events;
     proc->err->internal_data = proc;
+    proc->err->internal_eof_cb = on_process_stream_eof;
     proc->err->internal_close_cb = on_process_stream_close;
     proc->refcount++;
   }
@@ -307,11 +309,32 @@ static void process_close(Process *proc)
   }
 }
 
+static void process_close_out_handles(void **argv)
+{
+  Process *proc = argv[0];
+  process_close_out(proc);
+  process_close_err(proc);
+}
+
+static void eof_timeout_cb(uv_timer_t *handle)
+{
+  Process *proc = handle->data;
+  uv_timer_stop(handle);
+  uv_close((uv_handle_t *)handle, NULL);
+  queue_put(proc->events, process_close_out_handles, 1, proc);
+}
+
 static void process_close_handles(void **argv)
 {
   Process *proc = argv[0];
-  process_close_streams(proc);
+  process_close_in(proc);
   process_close(proc);
+  if ((proc->out && !proc->out->closed) || (proc->err && !proc->err->closed)) {
+    uv_timer_init(&proc->loop->uv, &proc->eof_timer);
+    proc->eof_timer.data = proc;
+    uv_timer_start(&proc->eof_timer, eof_timeout_cb, proc->stream_eof_timeout,
+        proc->stream_eof_timeout);
+  }
 }
 
 static void on_process_exit(Process *proc)
@@ -322,9 +345,12 @@ static void on_process_exit(Process *proc)
     DLOG("Stopping process kill timer");
     uv_timer_stop(&loop->children_kill_timer);
   }
-  // Process handles are closed in the next event loop tick. This is done to
-  // give libuv chance to read data from the OS after the process exits.
   queue_put(proc->events, process_close_handles, 1, proc);
+}
+
+static void on_process_stream_eof(Stream *stream, void *data)
+{
+  stream_close(stream, NULL);
 }
 
 static void on_process_stream_close(Stream *stream, void *data)

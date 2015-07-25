@@ -40,7 +40,7 @@ struct stream {
   uv_file fd;
   stream_read_cb read_cb;
   stream_write_cb write_cb;
-  stream_close_cb close_cb, internal_close_cb;
+  stream_close_cb close_cb, internal_eof_cb, internal_close_cb;
   size_t fpos;
   size_t curmem;
   size_t maxmem;

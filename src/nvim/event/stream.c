@@ -69,6 +69,7 @@ void stream_init(Loop *loop, Stream *stream, int fd, uv_stream_t *uvstream,
   stream->write_cb = NULL;
   stream->close_cb = NULL;
   stream->internal_close_cb = NULL;
+  stream->internal_eof_cb = NULL;
   stream->closed = false;
   stream->buffer = NULL;
   stream->events = loop->fast_events;

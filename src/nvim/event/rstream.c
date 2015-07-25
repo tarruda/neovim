@@ -172,9 +172,12 @@ static void fread_idle_cb(uv_idle_t *handle)
 static void read_event(void **argv)
 {
   Stream *stream = argv[0];
+  bool eof = (uintptr_t)argv[1];
   if (stream->read_cb) {
-    bool eof = (uintptr_t)argv[1];
     stream->read_cb(stream, stream->buffer, stream->data, eof);
+  }
+  if (eof && stream->internal_eof_cb) {
+    stream->internal_eof_cb(stream, stream->internal_data);
   }
 }
 
