@@ -4,6 +4,7 @@
 #include "nvim/event/loop.h"
 #include "nvim/event/rstream.h"
 #include "nvim/event/wstream.h"
+#include "nvim/event/time.h"
 
 typedef enum {
   kProcessTypeUv,
@@ -25,7 +26,7 @@ struct process {
   Stream *in, *out, *err;
   process_exit_cb cb;
   internal_process_cb internal_exit_cb, internal_close_cb;
-  bool closed, term_sent;
+  bool closed, term_sent, eof_timer_pending;
   Queue *events;
   // Timeout after the job exits to close the out/err streams. This is used as a
   // simple heuristic that ensures we won't close the streams before receiving
@@ -51,6 +52,7 @@ static inline Process process_init(Loop *loop, ProcessType type, void *data)
     .err = NULL,
     .cb = NULL,
     .closed = false,
+    .eof_timer_pending = false,
     .term_sent = false,
     .internal_close_cb = NULL,
     .internal_exit_cb = NULL,

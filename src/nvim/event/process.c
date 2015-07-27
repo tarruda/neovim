@@ -193,8 +193,8 @@ int process_wait(Process *proc, int ms) FUNC_ATTR_NONNULL_ALL
     // resources
     status = interrupted ? -2 : proc->status;
     decref(proc);
-    // there's a pending exit event for the process, handle it now.
-    LOOP_PROCESS_EVENTS(proc->loop, proc->events, 0);
+    // the decref call created an exit event, process it now
+    queue_process_events(proc->events);
   } else {
     proc->refcount--;
   }
@@ -263,6 +263,11 @@ static void children_kill_cb(uv_timer_t *handle)
 static void process_close_event(void **argv)
 {
   Process *proc = argv[0];
+  if (proc->eof_timer_pending) {
+    uv_timer_stop(&proc->eof_timer);
+    uv_close((uv_handle_t *)&proc->eof_timer, NULL);
+    uv_run(&proc->loop->uv, UV_RUN_NOWAIT);
+  }
   assert(queue_empty(proc->events));
   shell_free_argv(proc->argv);
   if (proc->type == kProcessTypePty) {
@@ -309,7 +314,7 @@ static void process_close(Process *proc)
   }
 }
 
-static void process_close_out_handles(void **argv)
+static void process_close_output_streams(void **argv)
 {
   Process *proc = argv[0];
   process_close_out(proc);
@@ -321,26 +326,30 @@ static void eof_timeout_cb(uv_timer_t *handle)
   Process *proc = handle->data;
   uv_timer_stop(handle);
   uv_close((uv_handle_t *)handle, NULL);
-  queue_put(proc->events, process_close_out_handles, 1, proc);
+  proc->eof_timer_pending = false;
+  queue_put(proc->events, process_close_output_streams, 1, proc);
 }
 
 static void process_close_handles(void **argv)
 {
   Process *proc = argv[0];
-  process_close_in(proc);
-  process_close(proc);
   if ((proc->out && !proc->out->closed) || (proc->err && !proc->err->closed)) {
+    proc->eof_timer_pending = true;
     uv_timer_init(&proc->loop->uv, &proc->eof_timer);
     proc->eof_timer.data = proc;
     uv_timer_start(&proc->eof_timer, eof_timeout_cb, proc->stream_eof_timeout,
         proc->stream_eof_timeout);
   }
+  process_close_in(proc);
+  process_close(proc);
 }
 
 static void on_process_exit(Process *proc)
 {
   Loop *loop = proc->loop;
-  if (loop->children_stop_requests && !--loop->children_stop_requests) {
+  if (proc->stopped_time != 0
+      && loop->children_stop_requests
+      && !--loop->children_stop_requests) {
     // Stop the timer if no more stop requests are pending
     DLOG("Stopping process kill timer");
     uv_timer_stop(&loop->children_kill_timer);

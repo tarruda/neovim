@@ -20196,7 +20196,9 @@ static inline bool common_job_start(TerminalJobData *data, typval_T *rettv)
   return true;
 }
 
-static inline void free_term_job_data(TerminalJobData *data) {
+static inline void free_term_job_data_event(void **argv)
+{
+  TerminalJobData *data = argv[0];
   if (data->on_stdout) {
     user_func_unref(data->on_stdout);
   }
@@ -20213,6 +20215,13 @@ static inline void free_term_job_data(TerminalJobData *data) {
   }
   queue_free(data->events);
   xfree(data);
+}
+
+static inline void free_term_job_data(TerminalJobData *data)
+{
+  // data->queue may still be used after this function returns(process_wait), so
+  // only free it the next event loop tick
+  queue_put(loop.fast_events, free_term_job_data_event, 1, data);
 }
 
 // vimscript job callbacks must be executed on Nvim main loop

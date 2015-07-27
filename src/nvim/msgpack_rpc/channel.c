@@ -647,7 +647,7 @@ static void close_channel(Channel *channel)
     case kChannelTypeStdio:
       stream_close(&channel->data.std.in, NULL);
       stream_close(&channel->data.std.out, NULL);
-      queue_put(channel->events, exit_event, 1, channel);
+      queue_put(loop.fast_events, exit_event, 1, channel);
       return;
     default:
       abort();

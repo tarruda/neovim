@@ -203,176 +203,176 @@ describe('system()', function()
   end)
 end)
 
-describe('systemlist()', function()
-  -- behavior is similar to `system()` but it returns a list instead of a
-  -- string.
-  before_each(clear)
+-- describe('systemlist()', function()
+--   -- behavior is similar to `system()` but it returns a list instead of a
+--   -- string.
+--   before_each(clear)
 
-  it('sets the v:shell_error variable', function()
-    eval([[systemlist("sh -c 'exit'")]])
-    eq(0, eval('v:shell_error'))
-    eval([[systemlist("sh -c 'exit 1'")]])
-    eq(1, eval('v:shell_error'))
-    eval([[systemlist("sh -c 'exit 5'")]])
-    eq(5, eval('v:shell_error'))
-    eval([[systemlist('this-should-not-exist')]])
-    eq(127, eval('v:shell_error'))
-  end)
+--   it('sets the v:shell_error variable', function()
+--     eval([[systemlist("sh -c 'exit'")]])
+--     eq(0, eval('v:shell_error'))
+--     eval([[systemlist("sh -c 'exit 1'")]])
+--     eq(1, eval('v:shell_error'))
+--     eval([[systemlist("sh -c 'exit 5'")]])
+--     eq(5, eval('v:shell_error'))
+--     eval([[systemlist('this-should-not-exist')]])
+--     eq(127, eval('v:shell_error'))
+--   end)
 
-  describe('exectues shell function', function()
-    local screen
+--   describe('exectues shell function', function()
+--     local screen
 
-    before_each(function()
-        clear()
-        screen = Screen.new()
-        screen:attach()
-    end)
+--     before_each(function()
+--         clear()
+--         screen = Screen.new()
+--         screen:attach()
+--     end)
 
-    after_each(function()
-        screen:detach()
-    end)
+--     after_each(function()
+--         screen:detach()
+--     end)
 
-    it('`echo` and waits for its return', function()
-      feed(':call systemlist("echo")<cr>')
-      screen:expect([[
-        ^                                                     |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        :call systemlist("echo")                             |
-      ]])
-    end)
+--     it('`echo` and waits for its return', function()
+--       feed(':call systemlist("echo")<cr>')
+--       screen:expect([[
+--         ^                                                     |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         :call systemlist("echo")                             |
+--       ]])
+--     end)
 
-    it('`yes` and is interrupted with CTRL-C', function()
-      feed(':call systemlist("yes | xargs")<cr>')
-      screen:expect([[
-                                                             |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        :call systemlist("yes | xargs")                      |
-      ]])
-      feed('<c-c>')
-      screen:expect([[
-        ^                                                     |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        ~                                                    |
-        Type  :quit<Enter>  to exit Nvim                     |
-      ]])
-    end)
-  end)
+--     it('`yes` and is interrupted with CTRL-C', function()
+--       feed(':call systemlist("yes | xargs")<cr>')
+--       screen:expect([[
+--                                                              |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         :call systemlist("yes | xargs")                      |
+--       ]])
+--       feed('<c-c>')
+--       screen:expect([[
+--         ^                                                     |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         ~                                                    |
+--         Type  :quit<Enter>  to exit Nvim                     |
+--       ]])
+--     end)
+--   end)
 
-  describe('passing string with linefeed characters as input', function()
-    it('splits the output on linefeed characters', function()
-      eq({'abc', 'def', 'ghi'}, eval([[systemlist("cat -", "abc\ndef\nghi")]]))
-    end)
-  end)
+--   describe('passing string with linefeed characters as input', function()
+--     it('splits the output on linefeed characters', function()
+--       eq({'abc', 'def', 'ghi'}, eval([[systemlist("cat -", "abc\ndef\nghi")]]))
+--     end)
+--   end)
 
-  describe('passing a lot of input', function()
-    it('returns the program output', function()
-      local input = {}
-      for i = 1, 0xffff do
-        input[#input + 1] = '01234567890ABCDEFabcdef'
-      end
-      nvim('set_var', 'input', input)
-      eq(input, eval('systemlist("cat -", g:input)'))
-    end)
-  end)
+--   describe('passing a lot of input', function()
+--     it('returns the program output', function()
+--       local input = {}
+--       for i = 1, 0xffff do
+--         input[#input + 1] = '01234567890ABCDEFabcdef'
+--       end
+--       nvim('set_var', 'input', input)
+--       eq(input, eval('systemlist("cat -", g:input)'))
+--     end)
+--   end)
 
-  describe('with output containing NULs', function()
-    local fname = 'Xtest'
+--   describe('with output containing NULs', function()
+--     local fname = 'Xtest'
 
-    setup(create_file_with_nuls(fname))
-    teardown(delete_file(fname))
+--     setup(create_file_with_nuls(fname))
+--     teardown(delete_file(fname))
 
-    it('replaces NULs by newline characters', function()
-      eq({'part1\npart2\npart3'}, eval('systemlist("cat '..fname..'")'))
-    end)
-  end)
+--     it('replaces NULs by newline characters', function()
+--       eq({'part1\npart2\npart3'}, eval('systemlist("cat '..fname..'")'))
+--     end)
+--   end)
 
-  describe('passing list as input', function()
-    it('joins list items with linefeed characters', function()
-      eq({'line1', 'line2', 'line3'},
-        eval("systemlist('cat -', ['line1', 'line2', 'line3'])"))
-    end)
+--   describe('passing list as input', function()
+--     it('joins list items with linefeed characters', function()
+--       eq({'line1', 'line2', 'line3'},
+--         eval("systemlist('cat -', ['line1', 'line2', 'line3'])"))
+--     end)
 
-    -- Unlike `system()` which uses SOH to represent NULs, with `systemlist()`
-    -- input and ouput are the same
-    describe('with linefeed characters inside list items', function()
-      it('converts linefeed characters to NULs', function()
-        eq({'l1\np2', 'line2\na\nb', 'l3'},
-          eval([[systemlist('cat -', ["l1\np2", "line2\na\nb", 'l3'])]]))
-      end)
-    end)
+--     -- Unlike `system()` which uses SOH to represent NULs, with `systemlist()`
+--     -- input and ouput are the same
+--     describe('with linefeed characters inside list items', function()
+--       it('converts linefeed characters to NULs', function()
+--         eq({'l1\np2', 'line2\na\nb', 'l3'},
+--           eval([[systemlist('cat -', ["l1\np2", "line2\na\nb", 'l3'])]]))
+--       end)
+--     end)
 
-    describe('with leading/trailing whitespace characters on items', function()
-      it('preserves whitespace, replacing linefeeds by NULs', function()
-        eq({'line ', 'line2\n', '\nline3'},
-          eval([[systemlist('cat -', ['line ', "line2\n", "\nline3"])]]))
-      end)
-    end)
-  end)
+--     describe('with leading/trailing whitespace characters on items', function()
+--       it('preserves whitespace, replacing linefeeds by NULs', function()
+--         eq({'line ', 'line2\n', '\nline3'},
+--           eval([[systemlist('cat -', ['line ', "line2\n", "\nline3"])]]))
+--       end)
+--     end)
+--   end)
 
-  describe('handles empty lines', function()
-    it('in the middle', function()
-      eq({'line one','','line two'}, eval("systemlist('cat',['line one','','line two'])"))
-    end)
+--   describe('handles empty lines', function()
+--     it('in the middle', function()
+--       eq({'line one','','line two'}, eval("systemlist('cat',['line one','','line two'])"))
+--     end)
 
-    it('in the beginning', function()
-      eq({'','line one','line two'}, eval("systemlist('cat',['','line one','line two'])"))
-    end)
-  end)
+--     it('in the beginning', function()
+--       eq({'','line one','line two'}, eval("systemlist('cat',['','line one','line two'])"))
+--     end)
+--   end)
 
-  describe('when keepempty option is', function()
-    it('0, ignores trailing newline', function()
-      eq({'aa','bb'}, eval("systemlist('cat',['aa','bb'],0)"))
-      eq({'aa','bb'}, eval("systemlist('cat',['aa','bb',''],0)"))
-    end)
+--   describe('when keepempty option is', function()
+--     it('0, ignores trailing newline', function()
+--       eq({'aa','bb'}, eval("systemlist('cat',['aa','bb'],0)"))
+--       eq({'aa','bb'}, eval("systemlist('cat',['aa','bb',''],0)"))
+--     end)
 
-    it('1, preserves trailing newline', function()
-      eq({'aa','bb'}, eval("systemlist('cat',['aa','bb'],1)"))
-      eq({'aa','bb',''}, eval("systemlist('cat',['aa','bb',''],2)"))
-    end)
-  end)
+--     it('1, preserves trailing newline', function()
+--       eq({'aa','bb'}, eval("systemlist('cat',['aa','bb'],1)"))
+--       eq({'aa','bb',''}, eval("systemlist('cat',['aa','bb',''],2)"))
+--     end)
+--   end)
 
-  describe("with a program that doesn't close stdout", function()
-    if not xclip then
-      pending('skipped (missing xclip)')
-    else
-      it('will exit properly after passing input', function()
-        eq({}, eval(
-          "systemlist('xclip -i -selection clipboard', ['clip', 'data'])"))
-        eq({'clip', 'data'}, eval(
-          "systemlist('xclip -o -selection clipboard')"))
-      end)
-    end
-  end)
-end)
+--   describe("with a program that doesn't close stdout", function()
+--     if not xclip then
+--       pending('skipped (missing xclip)')
+--     else
+--       it('will exit properly after passing input', function()
+--         eq({}, eval(
+--           "systemlist('xclip -i -selection clipboard', ['clip', 'data'])"))
+--         eq({'clip', 'data'}, eval(
+--           "systemlist('xclip -o -selection clipboard')"))
+--       end)
+--     end
+--   end)
+-- end)
