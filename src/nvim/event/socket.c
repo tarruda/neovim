@@ -154,7 +154,7 @@ static void connection_event(void **argv)
 static void connection_cb(uv_stream_t *handle, int status)
 {
   SocketWatcher *watcher = handle->data;
-  queue_put(watcher->events, connection_event, 2, watcher,
+  CREATE_EVENT(watcher->events, connection_event, 2, watcher,
       (void *)(uintptr_t)status);
 }
 

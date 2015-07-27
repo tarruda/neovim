@@ -50,7 +50,7 @@ static void time_watcher_cb(uv_timer_t *handle)
   FUNC_ATTR_NONNULL_ALL
 {
   TimeWatcher *watcher = handle->data;
-  queue_put(watcher->events, time_event, 1, watcher);
+  CREATE_EVENT(watcher->events, time_event, 1, watcher);
 }
 
 static void close_cb(uv_handle_t *handle)
