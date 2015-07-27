@@ -23,6 +23,16 @@ typedef struct loop {
   size_t children_stop_requests;
 } Loop;
 
+#define CREATE_EVENT(queue, handler, argc, ...)                  \
+  do {                                                           \
+    if (queue) {                                                 \
+      queue_put((queue), (handler), argc, __VA_ARGS__);          \
+    } else {                                                     \
+      void *argv[argc] = {__VA_ARGS__};                          \
+      (handler)(argv);                                           \
+    }                                                            \
+  } while (0)
+
 // Poll for events until a condition or timeout
 #define LOOP_PROCESS_EVENTS_UNTIL(loop, queue, timeout, condition)           \
   do {                                                                       \
@@ -45,9 +55,11 @@ typedef struct loop {
 
 #define LOOP_PROCESS_EVENTS(loop, queue, timeout)                            \
   do {                                                                       \
-    if (queue) queue_process_events(queue);                                  \
-    loop_poll_events(loop, timeout);                                         \
-    if (queue) queue_process_events(queue);                                  \
+    if (queue && !queue_empty(queue)) {                                      \
+      queue_process_events(queue);                                           \
+    } else {                                                                 \
+      loop_poll_events(loop, timeout);                                       \
+    }                                                                        \
   } while (0)
 
 

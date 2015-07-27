@@ -77,7 +77,7 @@ void socket_watcher_init(Loop *loop, SocketWatcher *watcher,
   watcher->stream->data = watcher;
   watcher->cb = NULL;
   watcher->close_cb = NULL;
-  watcher->events = loop->fast_events;
+  watcher->events = NULL;
 }
 
 int socket_watcher_start(SocketWatcher *watcher, int backlog, socket_cb cb)
@@ -154,7 +154,7 @@ static void connection_event(void **argv)
 static void connection_cb(uv_stream_t *handle, int status)
 {
   SocketWatcher *watcher = handle->data;
-  queue_put(watcher->events, connection_event, 2, watcher,
+  CREATE_EVENT(watcher->events, connection_event, 2, watcher,
       (void *)(uintptr_t)status);
 }
 

@@ -191,8 +191,10 @@ int process_wait(Process *proc, int ms) FUNC_ATTR_NONNULL_ALL
     // resources
     status = interrupted ? -2 : proc->status;
     decref(proc);
-    // there's a pending exit event for the process, handle it now.
-    LOOP_PROCESS_EVENTS(proc->loop, proc->events, 0);
+    if (proc->events) {
+      // the decref call created an exit event, process it now
+      queue_process_events(proc->events);
+    }
   } else {
     proc->refcount--;
   }
@@ -261,7 +263,6 @@ static void children_kill_cb(uv_timer_t *handle)
 static void process_close_event(void **argv)
 {
   Process *proc = argv[0];
-  assert(queue_empty(proc->events));
   shell_free_argv(proc->argv);
   if (proc->type == kProcessTypePty) {
     xfree(((PtyProcess *)proc)->term_name);
@@ -287,7 +288,7 @@ static void decref(Process *proc)
   }
   assert(node);
   kl_shift_at(WatcherPtr, loop->children, node);
-  queue_put(proc->events, process_close_event, 1, proc);
+  CREATE_EVENT(proc->events, process_close_event, 1, proc);
 }
 
 static void process_close(Process *proc)
@@ -324,7 +325,7 @@ static void on_process_exit(Process *proc)
   }
   // Process handles are closed in the next event loop tick. This is done to
   // give libuv chance to read data from the OS after the process exits.
-  queue_put(proc->events, process_close_handles, 1, proc);
+  CREATE_EVENT(proc->events, process_close_handles, 1, proc);
 }
 
 static void on_process_stream_close(Stream *stream, void *data)

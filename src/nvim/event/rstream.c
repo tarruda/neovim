@@ -180,5 +180,5 @@ static void read_event(void **argv)
 
 static void invoke_read_cb(Stream *stream, bool eof)
 {
-  queue_put(stream->events, read_event, 2, stream, (void *)(uintptr_t)eof);
+  CREATE_EVENT(stream->events, read_event, 2, stream, (void *)(uintptr_t)eof);
 }
