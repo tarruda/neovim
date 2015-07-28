@@ -324,8 +324,10 @@ static void on_process_exit(Process *proc)
     uv_timer_stop(&loop->children_kill_timer);
   }
   // Process handles are closed in the next event loop tick. This is done to
-  // give libuv chance to read data from the OS after the process exits.
-  CREATE_EVENT(proc->events, process_close_handles, 1, proc);
+  // give libuv more time to read data from the OS after the process exits(If
+  // process_close_streams is called with data still in the OS buffer, we lose
+  // it)
+  CREATE_EVENT(loop->fast_events, process_close_handles, 1, proc);
 }
 
 static void on_process_stream_close(Stream *stream, void *data)
