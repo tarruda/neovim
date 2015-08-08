@@ -55,11 +55,9 @@ typedef struct loop {
 
 #define LOOP_PROCESS_EVENTS(loop, queue, timeout)                            \
   do {                                                                       \
-    if (queue && !queue_empty(queue)) {                                      \
-      queue_process_events(queue);                                           \
-    } else {                                                                 \
-      loop_poll_events(loop, timeout);                                       \
-    }                                                                        \
+    Queue *q = (queue) ? (queue) : (loop)->fast_events;                      \
+    loop_poll_events(loop, queue_empty(q) ? (timeout) : 0);                  \
+    queue_process_events(q);                                                 \
   } while (0)
 
 

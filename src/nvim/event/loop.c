@@ -56,30 +56,6 @@ void loop_poll_events(Loop *loop, int ms)
   }
 
   recursive--;  // Can re-enter uv_run now
-  queue_process_events(loop->fast_events);
-}
-
-/// Creates an event that will be processed in the next loop iteration.
-void loop_call_soon(Loop *loop, argv_callback cb, int argc, ...)
-{
-  IdleEvent *idle_event = xmalloc(sizeof(IdleEvent));
-  VA_EVENT_INIT(&idle_event->event, cb, argc);
-  uv_idle_init(&loop->uv, &idle_event->idle);
-  idle_event->idle.data = idle_event;
-  uv_idle_start(&idle_event->idle, idle_cb);
-}
-
-static void free_handle_data(uv_handle_t *handle)
-{
-  xfree(handle->data);
-}
-
-static void idle_cb(uv_idle_t *handle)
-{
-  IdleEvent *idle_event = handle->data;
-  idle_event->event.handler(idle_event->event.argv);
-  uv_idle_stop(handle);
-  uv_close((uv_handle_t *)handle, free_handle_data);
 }
 
 static void on_put(Queue *queue, void *data)

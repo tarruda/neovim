@@ -125,12 +125,10 @@ Event queue_get(Queue *queue)
   return queue_empty(queue) ? NILEVENT : queue_remove(queue);
 }
 
-void queue_put(Queue *queue, argv_callback cb, int argc, ...)
+void queue_put_event(Queue *queue, Event event)
 {
   assert(queue);
   assert(queue->parent);  // don't push directly to the parent queue
-  Event event;
-  VA_EVENT_INIT(&event, cb, argc);
   queue_push(queue, event);
   if (queue->parent->put_cb) {
     queue->parent->put_cb(queue->parent, queue->parent->data);
