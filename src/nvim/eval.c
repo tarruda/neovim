@@ -21134,7 +21134,7 @@ static inline void free_term_job_data_event(void **argv)
 static inline void free_term_job_data(TerminalJobData *data)
 {
   // data->queue may still be used after this function returns(process_wait), so
-  // only free it the next event loop tick
+  // only free in the next event loop iteration
   queue_put(loop.fast_events, free_term_job_data_event, 1, data);
 }
 
