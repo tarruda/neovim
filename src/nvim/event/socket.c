@@ -144,6 +144,44 @@ void socket_watcher_close(SocketWatcher *watcher, socket_close_cb cb)
   uv_close((uv_handle_t *)watcher->stream, close_cb);
 }
 
+bool socket_watcher_connect(SocketWatcher *watcher, Stream *stream,
+    int timeout, void *data)
+{
+  bool result = false;
+  uv_connect_t connect;
+  uv_stream_t *server;
+
+  if (watcher->stream->type == UV_TCP) {
+    server = (uv_stream_t *)&stream->uv.tcp;
+    uv_tcp_init(watcher->uv.tcp.handle.loop, (uv_tcp_t *)server);
+    uv_tcp_connect(&connect, &stream->uv.tcp,
+        (const struct sockaddr *)&watcher->uv.tcp.addr, connected_cb);
+  } else {
+    server = (uv_stream_t *)&stream->uv.pipe;
+    uv_pipe_init(watcher->uv.pipe.handle.loop, (uv_pipe_t *)server, 0);
+    uv_pipe_connect(&connect, &stream->uv.pipe, watcher->addr,
+        connected_cb);
+  }
+
+  connect.data = &result;
+  LOOP_PROCESS_EVENTS_UNTIL(watcher->stream->loop->data, NULL, timeout,
+      got_int);
+  got_int = false;
+  stream_init(NULL, stream, -1, server, data);
+
+  return result;
+}
+
+static void connected_cb(uv_connect_t *handle, int status)
+{
+  if (status == 0) {
+    bool *result = handle->data;
+    *result = true;
+  }
+  got_int = true;
+  uv_stop(handle->handle->loop);
+}
+
 static void connection_event(void **argv)
 {
   SocketWatcher *watcher = argv[0];

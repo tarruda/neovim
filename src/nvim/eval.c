@@ -6708,6 +6708,7 @@ static struct fst {
   {"resolve",         1, 1, f_resolve},
   {"reverse",         1, 1, f_reverse},
   {"round",           1, 1, f_round},
+  {"rpcconnect",      1, 1, f_rpcconnect},
   {"rpcnotify",       2, 64, f_rpcnotify},
   {"rpcrequest",      2, 64, f_rpcrequest},
   {"rpcstart",        1, 2, f_rpcstart},
@@ -13638,6 +13639,30 @@ theend:
 static void f_round(typval_T *argvars, typval_T *rettv)
 {
   float_op_wrapper(argvars, rettv, &round);
+}
+
+// "rpcconnect(address)" function
+static void f_rpcconnect(typval_T *argvars, typval_T *rettv)
+{
+  rettv->v_type = VAR_NUMBER;
+  rettv->vval.v_number = 0;
+
+  if (check_restricted() || check_secure()) {
+    return;
+  }
+
+  if (argvars[0].v_type != VAR_STRING) {
+    EMSG2(_(e_invarg2), "Remote address must be a string");
+    return;
+  }
+
+  uint64_t channel_id = channel_from_address((char *)argvars[0].vval.v_string);
+
+  if (!channel_id) {
+    EMSG(_(e_api_spawn_failed));
+  }
+
+  rettv->vval.v_number = (varnumber_T)channel_id;
 }
 
 // "rpcnotify()" function

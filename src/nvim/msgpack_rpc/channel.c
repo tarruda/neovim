@@ -147,6 +147,25 @@ uint64_t channel_from_process(char **argv)
   return channel->id;
 }
 
+uint64_t channel_from_address(const char *address)
+{
+  Channel *channel = register_channel(kChannelTypeSocket);
+  SocketWatcher temp;
+  socket_watcher_init(&loop, &temp, address, NULL);
+  if (!socket_watcher_connect(&temp, &channel->data.stream, -1, channel)) {
+    decref(channel);
+  }
+  incref(channel);  // close channel only after the stream is closed
+  channel->data.stream.internal_close_cb = close_cb;
+  channel->data.stream.internal_data = channel;
+  wstream_init(&channel->data.stream, 0);
+  rstream_init(&channel->data.stream, CHANNEL_BUFFER_SIZE);
+  rstream_start(&channel->data.stream, parse_msgpack);
+  socket_watcher_close(&temp, NULL);
+  LOOP_PROCESS_EVENTS(&loop, NULL, 0);
+  return channel->id;
+}
+
 /// Creates an API channel from a tcp/pipe socket connection
 ///
 /// @param watcher The SocketWatcher ready to accept the connection
