@@ -22,6 +22,7 @@
 #include "nvim/os/os.h"
 #include "nvim/strings.h"
 #include "nvim/ugrid.h"
+#include "nvim/ui_bridge.h"
 
 // Space reserved in the output buffer to restore the cursor to normal when
 // flushing. No existing terminal will require 32 bytes to do that.
@@ -33,6 +34,9 @@ typedef struct {
 } Rect;
 
 typedef struct {
+  UIBridgeData *bridge;
+  Loop *loop;
+  bool stop;
   unibi_var_t params[9];
   char buf[OUTBUF_SIZE];
   size_t bufpos, bufsize;
@@ -66,8 +70,73 @@ static bool volatile got_winch = false;
 
 UI *tui_start(void)
 {
-  TUIData *data = xcalloc(1, sizeof(TUIData));
   UI *ui = xcalloc(1, sizeof(UI));
+  ui->stop = tui_stop;
+  ui->rgb = os_getenv("NVIM_TUI_ENABLE_TRUE_COLOR") != NULL;
+  ui->resize = tui_resize;
+  ui->clear = tui_clear;
+  ui->eol_clear = tui_eol_clear;
+  ui->cursor_goto = tui_cursor_goto;
+  ui->update_menu = tui_update_menu;
+  ui->busy_start = tui_busy_start;
+  ui->busy_stop = tui_busy_stop;
+  ui->mouse_on = tui_mouse_on;
+  ui->mouse_off = tui_mouse_off;
+  ui->mode_change = tui_mode_change;
+  ui->set_scroll_region = tui_set_scroll_region;
+  ui->scroll = tui_scroll;
+  ui->highlight_set = tui_highlight_set;
+  ui->put = tui_put;
+  ui->bell = tui_bell;
+  ui->visual_bell = tui_visual_bell;
+  ui->update_fg = tui_update_fg;
+  ui->update_bg = tui_update_bg;
+  ui->flush = tui_flush;
+  ui->suspend = tui_suspend;
+  ui->set_title = tui_set_title;
+  ui->set_icon = tui_set_icon;
+  ui->set_encoding = tui_set_encoding;
+  return ui_bridge_attach(ui, tui_main);
+}
+
+static void tui_stop(UI *ui)
+{
+  TUIData *data = ui->data;
+  // Destroy common stuff
+  kv_destroy(data->invalid_regions);
+  signal_watcher_stop(&data->winch_handle);
+  signal_watcher_close(&data->winch_handle, NULL);
+  // Destroy input stuff
+  term_input_destroy(data->input);
+  // Destroy output stuff
+  tui_mode_change(ui, NORMAL);
+  tui_mouse_off(ui);
+  unibi_out(ui, unibi_exit_attribute_mode);
+  // cursor should be set to normal before exiting alternate screen
+  unibi_out(ui, unibi_cursor_normal);
+  unibi_out(ui, unibi_exit_ca_mode);
+  // Disable bracketed paste
+  unibi_out(ui, data->unibi_ext.disable_bracketed_paste);
+  flush_buf(ui);
+  uv_tty_reset_mode();
+  uv_close((uv_handle_t *)&data->output_handle, NULL);
+  uv_run(data->write_loop, UV_RUN_DEFAULT);
+  if (uv_loop_close(data->write_loop)) {
+    abort();
+  }
+  xfree(data->write_loop);
+  unibi_destroy(data->ut);
+  ugrid_free(&data->grid);
+  data->stop = true;
+}
+
+static void tui_main(UIBridgeData *bridge, UI *ui)
+{
+  Loop tui_loop;
+  loop_init(&tui_loop, NULL);
+  TUIData *data = xcalloc(1, sizeof(TUIData));
+  data->bridge = bridge;
+  data->loop = &tui_loop;
   ui->data = data;
   data->print_attrs = EMPTY_ATTRS;
   ugrid_init(&data->grid);
@@ -87,7 +156,7 @@ UI *tui_start(void)
   data->out_fd = os_isatty(1) ? 1 : (os_isatty(2) ? 2 : 1);
   kv_init(data->invalid_regions);
   // setup term input
-  data->input = term_input_new();
+  data->input = term_input_new(&tui_loop);
   // setup unibilium
   data->ut = unibi_from_env();
   if (!data->ut) {
@@ -112,73 +181,30 @@ UI *tui_start(void)
   update_size(ui);
 
   // listen for SIGWINCH
-  signal_watcher_init(&loop, &data->winch_handle, ui);
-  data->winch_handle.events = queue_new_child(loop.events);
+  signal_watcher_init(&tui_loop, &data->winch_handle, ui);
   signal_watcher_start(&data->winch_handle, sigwinch_cb, SIGWINCH);
+  data->stop = false;
+  ui_bridge_start(bridge, tui_scheduler);
 
-  ui->stop = tui_stop;
-  ui->rgb = os_getenv("NVIM_TUI_ENABLE_TRUE_COLOR") != NULL;
-  ui->data = data;
-  ui->resize = tui_resize;
-  ui->clear = tui_clear;
-  ui->eol_clear = tui_eol_clear;
-  ui->cursor_goto = tui_cursor_goto;
-  ui->update_menu = tui_update_menu;
-  ui->busy_start = tui_busy_start;
-  ui->busy_stop = tui_busy_stop;
-  ui->mouse_on = tui_mouse_on;
-  ui->mouse_off = tui_mouse_off;
-  ui->mode_change = tui_mode_change;
-  ui->set_scroll_region = tui_set_scroll_region;
-  ui->scroll = tui_scroll;
-  ui->highlight_set = tui_highlight_set;
-  ui->put = tui_put;
-  ui->bell = tui_bell;
-  ui->visual_bell = tui_visual_bell;
-  ui->update_fg = tui_update_fg;
-  ui->update_bg = tui_update_bg;
-  ui->flush = tui_flush;
-  ui->suspend = tui_suspend;
-  ui->set_title = tui_set_title;
-  ui->set_icon = tui_set_icon;
-  ui->set_encoding = tui_set_encoding;
-  // Attach
-  ui_attach(ui);
-  return ui;
+  while (!data->stop) {
+    loop_poll_events(&tui_loop, -1);
+  }
+
+  loop_close(&tui_loop);
+  xfree(data);
+  xfree(ui);
 }
 
-static void tui_stop(UI *ui)
+static void tui_scheduler(Event event, void *d)
 {
+  UI *ui = d;
   TUIData *data = ui->data;
-  // Destroy common stuff
-  kv_destroy(data->invalid_regions);
-  signal_watcher_stop(&data->winch_handle);
-  queue_free(data->winch_handle.events);
-  signal_watcher_close(&data->winch_handle, NULL);
-  // Destroy input stuff
-  term_input_destroy(data->input);
-  // Destroy output stuff
-  tui_mode_change(ui, NORMAL);
-  tui_mouse_off(ui);
-  unibi_out(ui, unibi_exit_attribute_mode);
-  // cursor should be set to normal before exiting alternate screen
-  unibi_out(ui, unibi_cursor_normal);
-  unibi_out(ui, unibi_exit_ca_mode);
-  // Disable bracketed paste
-  unibi_out(ui, data->unibi_ext.disable_bracketed_paste);
-  flush_buf(ui);
-  uv_tty_reset_mode();
-  uv_close((uv_handle_t *)&data->output_handle, NULL);
-  uv_run(data->write_loop, UV_RUN_DEFAULT);
-  if (uv_loop_close(data->write_loop)) {
-    abort();
-  }
-  xfree(data->write_loop);
-  unibi_destroy(data->ut);
-  ugrid_free(&data->grid);
-  xfree(data);
-  ui_detach(ui);
-  xfree(ui);
+  loop_schedule(data->loop, event);
+}
+
+static void refresh_event(void **argv)
+{
+  ui_refresh();
 }
 
 static void sigwinch_cb(SignalWatcher *watcher, int signum, void *data)
@@ -186,7 +212,8 @@ static void sigwinch_cb(SignalWatcher *watcher, int signum, void *data)
   got_winch = true;
   UI *ui = data;
   update_size(ui);
-  ui_refresh();
+  // run refresh_event in nvim main loop
+  loop_schedule(&loop, event_create(1, refresh_event, 0));
 }
 
 static bool attrs_differ(HlAttrs a1, HlAttrs a2)
@@ -521,16 +548,23 @@ static void tui_flush(UI *ui)
   flush_buf(ui);
 }
 
+static void resume_event(void **argv)
+{
+  UI *ui = tui_start();
+  bool enable_mouse = argv[0];
+  if (enable_mouse) {
+    tui_mouse_on(ui);
+  }
+}
+
 static void tui_suspend(UI *ui)
 {
   TUIData *data = ui->data;
   bool enable_mouse = data->mouse_enabled;
   tui_stop(ui);
   kill(0, SIGTSTP);
-  ui = tui_start();
-  if (enable_mouse) {
-    tui_mouse_on(ui);
-  }
+  loop_schedule(&loop, event_create(1, resume_event, 1,
+        (uintptr_t)enable_mouse));
 }
 
 static void tui_set_title(UI *ui, char *title)
@@ -633,8 +667,8 @@ end:
     height = DFLT_ROWS;
   }
 
-  ui->width = width;
-  ui->height = height;
+  data->bridge->bridge.width = ui->width = width;
+  data->bridge->bridge.height = ui->height = height;
 }
 
 static void unibi_goto(UI *ui, int row, int col)
