@@ -99,7 +99,57 @@ UI *tui_start(void)
   return ui_bridge_attach(ui, tui_main, tui_scheduler);
 }
 
-static void tui_stop(UI *ui)
+static void init(UI *ui)
+{
+  TUIData *data = ui->data;
+  data->print_attrs = EMPTY_ATTRS;
+  ugrid_init(&data->grid);
+  data->can_use_terminal_scroll = true;
+  data->bufpos = 0;
+  data->bufsize = sizeof(data->buf) - CNORM_COMMAND_MAX_SIZE;
+  data->showing_mode = 0;
+  data->unibi_ext.enable_mouse = -1;
+  data->unibi_ext.disable_mouse = -1;
+  data->unibi_ext.enable_bracketed_paste = -1;
+  data->unibi_ext.disable_bracketed_paste = -1;
+  data->unibi_ext.enter_insert_mode = -1;
+  data->unibi_ext.enter_replace_mode = -1;
+  data->unibi_ext.exit_insert_mode = -1;
+
+  // write output to stderr if stdout is not a tty
+  data->out_fd = os_isatty(1) ? 1 : (os_isatty(2) ? 2 : 1);
+  kv_init(data->invalid_regions);
+  // setup term input
+  data->input = term_input_new(data->loop);
+  // setup unibilium
+  data->ut = unibi_from_env();
+  if (!data->ut) {
+    // For some reason could not read terminfo file, use a dummy entry that
+    // will be populated with common values by fix_terminfo below
+    data->ut = unibi_dummy();
+  }
+  fix_terminfo(data);
+  // Enter alternate screen and clear
+  unibi_out(ui, unibi_enter_ca_mode);
+  unibi_out(ui, unibi_clear_screen);
+  // Enable bracketed paste
+  unibi_out(ui, data->unibi_ext.enable_bracketed_paste);
+  // setup output handle in a separate event loop(we wanna do synchronous
+  // write to the tty)
+  data->write_loop = xmalloc(sizeof(uv_loop_t));
+  uv_loop_init(data->write_loop);
+  uv_tty_init(data->write_loop, &data->output_handle, data->out_fd, 0);
+  uv_tty_set_mode(&data->output_handle, UV_TTY_MODE_RAW);
+
+  // Obtain screen dimensions
+  update_size(ui);
+
+  // listen for SIGWINCH
+  signal_watcher_init(data->loop, &data->winch_handle, ui);
+  signal_watcher_start(&data->winch_handle, sigwinch_cb, SIGWINCH);
+}
+
+static void cleanup(UI *ui)
 {
   TUIData *data = ui->data;
   // Destroy common stuff
@@ -127,6 +177,12 @@ static void tui_stop(UI *ui)
   xfree(data->write_loop);
   unibi_destroy(data->ut);
   ugrid_free(&data->grid);
+}
+
+static void tui_stop(UI *ui)
+{
+  cleanup(ui);
+  TUIData *data = ui->data;
   data->stop = true;
 }
 
@@ -138,51 +194,7 @@ static void tui_main(UIBridgeData *bridge, UI *ui)
   data->bridge = bridge;
   data->loop = &tui_loop;
   ui->data = data;
-  data->print_attrs = EMPTY_ATTRS;
-  ugrid_init(&data->grid);
-  data->can_use_terminal_scroll = true;
-  data->bufpos = 0;
-  data->bufsize = sizeof(data->buf) - CNORM_COMMAND_MAX_SIZE;
-  data->showing_mode = 0;
-  data->unibi_ext.enable_mouse = -1;
-  data->unibi_ext.disable_mouse = -1;
-  data->unibi_ext.enable_bracketed_paste = -1;
-  data->unibi_ext.disable_bracketed_paste = -1;
-  data->unibi_ext.enter_insert_mode = -1;
-  data->unibi_ext.enter_replace_mode = -1;
-  data->unibi_ext.exit_insert_mode = -1;
-
-  // write output to stderr if stdout is not a tty
-  data->out_fd = os_isatty(1) ? 1 : (os_isatty(2) ? 2 : 1);
-  kv_init(data->invalid_regions);
-  // setup term input
-  data->input = term_input_new(&tui_loop);
-  // setup unibilium
-  data->ut = unibi_from_env();
-  if (!data->ut) {
-    // For some reason could not read terminfo file, use a dummy entry that
-    // will be populated with common values by fix_terminfo below
-    data->ut = unibi_dummy();
-  }
-  fix_terminfo(data);
-  // Enter alternate screen and clear
-  unibi_out(ui, unibi_enter_ca_mode);
-  unibi_out(ui, unibi_clear_screen);
-  // Enable bracketed paste
-  unibi_out(ui, data->unibi_ext.enable_bracketed_paste);
-  // setup output handle in a separate event loop(we wanna do synchronous
-  // write to the tty)
-  data->write_loop = xmalloc(sizeof(uv_loop_t));
-  uv_loop_init(data->write_loop);
-  uv_tty_init(data->write_loop, &data->output_handle, data->out_fd, 0);
-  uv_tty_set_mode(&data->output_handle, UV_TTY_MODE_RAW);
-
-  // Obtain screen dimensions
-  update_size(ui);
-
-  // listen for SIGWINCH
-  signal_watcher_init(&tui_loop, &data->winch_handle, ui);
-  signal_watcher_start(&data->winch_handle, sigwinch_cb, SIGWINCH);
+  init(ui);
   data->stop = false;
   CONTINUE(bridge);
 
@@ -552,11 +564,11 @@ static void tui_suspend(UI *ui)
 {
   TUIData *data = ui->data;
   bool enable_mouse = data->mouse_enabled;
-  tui_stop(ui);
+  cleanup(ui);
   kill(0, SIGTSTP);
-  data->bridge->ui = tui_start();
+  init(ui);
   if (enable_mouse) {
-    tui_mouse_on(data->bridge->ui);
+    tui_mouse_on(ui);
   }
 }
 
