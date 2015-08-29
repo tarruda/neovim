@@ -96,7 +96,7 @@ UI *tui_start(void)
   ui->set_title = tui_set_title;
   ui->set_icon = tui_set_icon;
   ui->set_encoding = tui_set_encoding;
-  return ui_bridge_attach(ui, tui_main);
+  return ui_bridge_attach(ui, tui_main, tui_scheduler);
 }
 
 static void tui_stop(UI *ui)
@@ -184,7 +184,7 @@ static void tui_main(UIBridgeData *bridge, UI *ui)
   signal_watcher_init(&tui_loop, &data->winch_handle, ui);
   signal_watcher_start(&data->winch_handle, sigwinch_cb, SIGWINCH);
   data->stop = false;
-  ui_bridge_start(bridge, tui_scheduler);
+  CONTINUE(bridge);
 
   while (!data->stop) {
     loop_poll_events(&tui_loop, -1);
@@ -548,23 +548,16 @@ static void tui_flush(UI *ui)
   flush_buf(ui);
 }
 
-static void resume_event(void **argv)
-{
-  UI *ui = tui_start();
-  bool enable_mouse = argv[0];
-  if (enable_mouse) {
-    tui_mouse_on(ui);
-  }
-}
-
 static void tui_suspend(UI *ui)
 {
   TUIData *data = ui->data;
   bool enable_mouse = data->mouse_enabled;
   tui_stop(ui);
   kill(0, SIGTSTP);
-  loop_schedule(&loop, event_create(1, resume_event, 1,
-        (uintptr_t)enable_mouse));
+  data->bridge->ui = tui_start();
+  if (enable_mouse) {
+    tui_mouse_on(data->bridge->ui);
+  }
 }
 
 static void tui_set_title(UI *ui, char *title)

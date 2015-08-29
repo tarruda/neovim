@@ -18,7 +18,20 @@ struct ui_bridge_data {
   ui_main_fn ui_main;
   uv_mutex_t mutex;
   uv_cond_t cond;
+  // When the UI thread is called, the main thread will suspend until
+  // the call returns. This flag is used as a condition for the main
+  // thread to continue.
+  bool ready;
 };
+
+#define CONTINUE(b)                                                       \
+  do {                                                                    \
+    UIBridgeData *data = (UIBridgeData *)b;                               \
+    uv_mutex_lock(&data->mutex);                                          \
+    data->ready = true;                                                   \
+    uv_cond_signal(&data->cond);                                          \
+    uv_mutex_unlock(&data->mutex);                                        \
+  } while (0)
 
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
