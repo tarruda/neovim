@@ -52,6 +52,7 @@ typedef struct {
   Event scheduled_event;
   UGrid grid;
   kvec_t(Rect) invalid_regions;
+  uv_mutex_t mutex;
   int out_fd;
   bool can_use_terminal_scroll;
   bool mouse_enabled;
@@ -192,7 +193,9 @@ static void tui_stop(UI *ui)
 static void async_cb(uv_async_t *handle)
 {
   TUIData *data = handle->data;
+  uv_mutex_lock(&data->mutex);
   data->scheduled_event.handler(data->scheduled_event.argv);
+  uv_mutex_unlock(&data->mutex);
 }
 
 // Main function of the TUI thread
@@ -202,6 +205,7 @@ static void tui_main(UIBridgeData *bridge, UI *ui)
   loop_init(&tui_loop, NULL);
   TUIData *data = xcalloc(1, sizeof(TUIData));
   ui->data = data;
+  uv_mutex_init(&data->mutex);
   data->async.data = data;
   data->bridge = bridge;
   data->loop = &tui_loop;
@@ -225,6 +229,7 @@ static void tui_main(UIBridgeData *bridge, UI *ui)
   uv_close((uv_handle_t *)&data->async, NULL);
   loop_close(&tui_loop);
   kv_destroy(data->invalid_regions);
+  uv_mutex_destroy(&data->mutex);
   xfree(data);
   xfree(ui);
 }
@@ -233,7 +238,9 @@ static void tui_scheduler(Event event, void *d)
 {
   UI *ui = d;
   TUIData *data = ui->data;
+  uv_mutex_lock(&data->mutex);
   data->scheduled_event = event;
+  uv_mutex_unlock(&data->mutex);
   uv_async_send(&data->async);
 }
 
