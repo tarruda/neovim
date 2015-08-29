@@ -40,11 +40,16 @@ typedef struct {
   unibi_var_t params[9];
   char buf[OUTBUF_SIZE];
   size_t bufpos, bufsize;
-  TermInput *input;
-  uv_loop_t *write_loop;
+  TermInput input;
+  uv_loop_t write_loop;
   unibi_term *ut;
   uv_tty_t output_handle;
   SignalWatcher winch_handle;
+  // Async handle used to wake the tui event loop from the main thread
+  uv_async_t async;
+  // Event scheduled by the ui bridge. Since the main thread suspends until
+  // the event is handled, it is fine to use a single field instead of a queue
+  Event scheduled_event;
   UGrid grid;
   kvec_t(Rect) invalid_regions;
   int out_fd;
@@ -99,11 +104,9 @@ UI *tui_start(void)
   return ui_bridge_attach(ui, tui_main, tui_scheduler);
 }
 
-static void init(UI *ui)
+static void terminfo_start(UI *ui)
 {
   TUIData *data = ui->data;
-  data->print_attrs = EMPTY_ATTRS;
-  ugrid_init(&data->grid);
   data->can_use_terminal_scroll = true;
   data->bufpos = 0;
   data->bufsize = sizeof(data->buf) - CNORM_COMMAND_MAX_SIZE;
@@ -115,12 +118,9 @@ static void init(UI *ui)
   data->unibi_ext.enter_insert_mode = -1;
   data->unibi_ext.enter_replace_mode = -1;
   data->unibi_ext.exit_insert_mode = -1;
-
   // write output to stderr if stdout is not a tty
   data->out_fd = os_isatty(1) ? 1 : (os_isatty(2) ? 2 : 1);
-  kv_init(data->invalid_regions);
-  // setup term input
-  data->input = term_input_new(data->loop);
+  uv_tty_set_mode(&data->output_handle, UV_TTY_MODE_RAW);
   // setup unibilium
   data->ut = unibi_from_env();
   if (!data->ut) {
@@ -134,30 +134,14 @@ static void init(UI *ui)
   unibi_out(ui, unibi_clear_screen);
   // Enable bracketed paste
   unibi_out(ui, data->unibi_ext.enable_bracketed_paste);
-  // setup output handle in a separate event loop(we wanna do synchronous
-  // write to the tty)
-  data->write_loop = xmalloc(sizeof(uv_loop_t));
-  uv_loop_init(data->write_loop);
-  uv_tty_init(data->write_loop, &data->output_handle, data->out_fd, 0);
+  uv_loop_init(&data->write_loop);
+  uv_tty_init(&data->write_loop, &data->output_handle, data->out_fd, 0);
   uv_tty_set_mode(&data->output_handle, UV_TTY_MODE_RAW);
-
-  // Obtain screen dimensions
-  update_size(ui);
-
-  // listen for SIGWINCH
-  signal_watcher_init(data->loop, &data->winch_handle, ui);
-  signal_watcher_start(&data->winch_handle, sigwinch_cb, SIGWINCH);
 }
 
-static void cleanup(UI *ui)
+static void terminfo_stop(UI *ui)
 {
   TUIData *data = ui->data;
-  // Destroy common stuff
-  kv_destroy(data->invalid_regions);
-  signal_watcher_stop(&data->winch_handle);
-  signal_watcher_close(&data->winch_handle, NULL);
-  // Destroy input stuff
-  term_input_destroy(data->input);
   // Destroy output stuff
   tui_mode_change(ui, NORMAL);
   tui_mouse_off(ui);
@@ -170,39 +154,77 @@ static void cleanup(UI *ui)
   flush_buf(ui);
   uv_tty_reset_mode();
   uv_close((uv_handle_t *)&data->output_handle, NULL);
-  uv_run(data->write_loop, UV_RUN_DEFAULT);
-  if (uv_loop_close(data->write_loop)) {
+  uv_run(&data->write_loop, UV_RUN_DEFAULT);
+  if (uv_loop_close(&data->write_loop)) {
     abort();
   }
-  xfree(data->write_loop);
   unibi_destroy(data->ut);
+}
+
+static void tui_terminal_start(UI *ui)
+{
+  TUIData *data = ui->data;
+  data->print_attrs = EMPTY_ATTRS;
+  term_input_start(&data->input);
+  terminfo_start(ui);
+  ugrid_init(&data->grid);
+  update_size(ui);
+  signal_watcher_start(&data->winch_handle, sigwinch_cb, SIGWINCH);
+}
+
+static void tui_terminal_stop(UI *ui)
+{
+  TUIData *data = ui->data;
+  // stop reading input
+  term_input_stop(&data->input);
+  terminfo_stop(ui);
+  signal_watcher_stop(&data->winch_handle);
   ugrid_free(&data->grid);
 }
 
 static void tui_stop(UI *ui)
 {
-  cleanup(ui);
+  tui_terminal_stop(ui);
   TUIData *data = ui->data;
   data->stop = true;
 }
 
+static void async_cb(uv_async_t *handle)
+{
+  TUIData *data = handle->data;
+  data->scheduled_event.handler(data->scheduled_event.argv);
+}
+
+// Main function of the TUI thread
 static void tui_main(UIBridgeData *bridge, UI *ui)
 {
   Loop tui_loop;
   loop_init(&tui_loop, NULL);
   TUIData *data = xcalloc(1, sizeof(TUIData));
+  ui->data = data;
+  data->async.data = data;
   data->bridge = bridge;
   data->loop = &tui_loop;
-  ui->data = data;
-  init(ui);
+  kv_init(data->invalid_regions);
+  uv_async_init(&tui_loop.uv, &data->async, async_cb);
+  signal_watcher_init(data->loop, &data->winch_handle, ui);
+  // initialize input reading structures
+  term_input_init(&data->input, &tui_loop);
+  tui_terminal_start(ui);
   data->stop = false;
+  // allow the main thread to continue, we are ready to start handling UI
+  // callbacks
   CONTINUE(bridge);
 
   while (!data->stop) {
     loop_poll_events(&tui_loop, -1);
   }
 
+  term_input_destroy(&data->input);
+  signal_watcher_close(&data->winch_handle, NULL);
+  uv_close((uv_handle_t *)&data->async, NULL);
   loop_close(&tui_loop);
+  kv_destroy(data->invalid_regions);
   xfree(data);
   xfree(ui);
 }
@@ -211,7 +233,8 @@ static void tui_scheduler(Event event, void *d)
 {
   UI *ui = d;
   TUIData *data = ui->data;
-  loop_schedule(data->loop, event);
+  data->scheduled_event = event;
+  uv_async_send(&data->async);
 }
 
 static void refresh_event(void **argv)
@@ -564,9 +587,9 @@ static void tui_suspend(UI *ui)
 {
   TUIData *data = ui->data;
   bool enable_mouse = data->mouse_enabled;
-  cleanup(ui);
+  tui_terminal_stop(ui);
   kill(0, SIGTSTP);
-  init(ui);
+  tui_terminal_start(ui);
   if (enable_mouse) {
     tui_mouse_on(ui);
   }
@@ -591,7 +614,7 @@ static void tui_set_icon(UI *ui, char *icon)
 static void tui_set_encoding(UI *ui, char* enc)
 {
   TUIData *data = ui->data;
-  term_input_set_encoding(data->input, enc);
+  term_input_set_encoding(&data->input, enc);
 }
 
 static void invalidate(UI *ui, int top, int bot, int left, int right)
@@ -856,7 +879,7 @@ static void flush_buf(UI *ui)
   buf.base = data->buf;
   buf.len = data->bufpos;
   uv_write(&req, (uv_stream_t *)&data->output_handle, &buf, 1, NULL);
-  uv_run(data->write_loop, UV_RUN_DEFAULT);
+  uv_run(&data->write_loop, UV_RUN_DEFAULT);
   data->bufpos = 0;
 
   if (!data->busy) {
