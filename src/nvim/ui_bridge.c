@@ -22,12 +22,12 @@
   do {                                                                      \
     UIBridgeData *bridge = (UIBridgeData *)b;                               \
     Event ev = event_create(1, ui_bridge_##name##_event, argc, __VA_ARGS__);\
-    uv_mutex_lock(&bridge->mutex);                                          \
-    bridge->ready = false;                                                  \
     bridge->scheduler(ev, UI(b));                                           \
+    uv_mutex_lock(&bridge->mutex);                                          \
     while (!bridge->ready) {                                                \
       uv_cond_wait(&bridge->cond, &bridge->mutex);                          \
     }                                                                       \
+    bridge->ready = false;                                                  \
     uv_mutex_unlock(&bridge->mutex);                                        \
   } while (0)
 
@@ -78,7 +78,7 @@ UI *ui_bridge_attach(UI *ui, ui_main_fn ui_main, event_scheduler scheduler)
   while (!rv->ready) {
     uv_cond_wait(&rv->cond, &rv->mutex);
   }
-
+  rv->ready = false;
   uv_mutex_unlock(&rv->mutex);
 
   ui_attach(&rv->bridge);
