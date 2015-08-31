@@ -45,9 +45,6 @@ typedef struct {
   unibi_term *ut;
   uv_tty_t output_handle;
   SignalWatcher winch_handle;
-  // Async handle used to wake the tui event loop from the main thread
-  uv_async_t async;
-  uv_mutex_t async_mutex;
   // Event scheduled by the ui bridge. Since the main thread suspends until
   // the event is handled, it is fine to use a single field instead of a queue
   Event scheduled_event;
@@ -190,14 +187,6 @@ static void tui_stop(UI *ui)
   data->stop = true;
 }
 
-static void async_cb(uv_async_t *handle)
-{
-  TUIData *data = handle->data;
-  uv_mutex_lock(&data->async_mutex);
-  data->scheduled_event.handler(data->scheduled_event.argv);
-  uv_mutex_unlock(&data->async_mutex);
-}
-
 // Main function of the TUI thread
 static void tui_main(UIBridgeData *bridge, UI *ui)
 {
@@ -205,12 +194,9 @@ static void tui_main(UIBridgeData *bridge, UI *ui)
   loop_init(&tui_loop, NULL);
   TUIData *data = xcalloc(1, sizeof(TUIData));
   ui->data = data;
-  uv_mutex_init(&data->async_mutex);
-  data->async.data = data;
   data->bridge = bridge;
   data->loop = &tui_loop;
   kv_init(data->invalid_regions);
-  uv_async_init(&tui_loop.uv, &data->async, async_cb);
   signal_watcher_init(data->loop, &data->winch_handle, ui);
   // initialize input reading structures
   term_input_init(&data->input, &tui_loop);
@@ -226,12 +212,8 @@ static void tui_main(UIBridgeData *bridge, UI *ui)
 
   term_input_destroy(&data->input);
   signal_watcher_close(&data->winch_handle, NULL);
-  uv_mutex_lock(&data->async_mutex);
-  uv_close((uv_handle_t *)&data->async, NULL);
-  uv_mutex_unlock(&data->async_mutex);
   loop_close(&tui_loop);
   kv_destroy(data->invalid_regions);
-  uv_mutex_destroy(&data->async_mutex);
   xfree(data);
   xfree(ui);
 }
@@ -240,10 +222,7 @@ static void tui_scheduler(Event event, void *d)
 {
   UI *ui = d;
   TUIData *data = ui->data;
-  uv_mutex_lock(&data->async_mutex);
-  data->scheduled_event = event;
-  uv_async_send(&data->async);
-  uv_mutex_unlock(&data->async_mutex);
+  loop_schedule(data->loop, event);
 }
 
 static void refresh_event(void **argv)
