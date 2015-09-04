@@ -2,6 +2,7 @@
 #define NVIM_EVAL_H
 
 #include "nvim/profile.h"
+#include "nvim/ui.h"
 
 /* Defines for Vim variables.  These must match vimvars[] in eval.c! */
 enum {

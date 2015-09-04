@@ -9,6 +9,7 @@
 #include "nvim/ui.h"
 #include "nvim/memory.h"
 #include "nvim/ui_bridge.h"
+#include "nvim/eval.h"
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "ui_bridge.c.generated.h"
@@ -52,7 +53,7 @@ UI *ui_bridge_attach(UI *ui, ui_main_fn ui_main, event_scheduler scheduler)
   rv->bridge.suspend = ui_bridge_suspend;
   rv->bridge.set_title = ui_bridge_set_title;
   rv->bridge.set_icon = ui_bridge_set_icon;
-  rv->bridge.set_encoding = ui_bridge_set_encoding;
+  rv->bridge.set_option = ui_bridge_set_option;
   rv->scheduler = scheduler;
 
   rv->ui_main = ui_main;
@@ -335,13 +336,27 @@ static void ui_bridge_set_icon_event(void **argv)
   xfree(argv[1]);
 }
 
-static void ui_bridge_set_encoding(UI *b, char* enc)
+static void ui_bridge_set_option(UI *b, const char *name, typval_T value)
 {
-  UI_CALL(b, set_encoding, 2, b, xstrdup(enc));
+  typval_T *v = xmalloc(sizeof(typval_T));
+  item_copy(&value, v, true, 0);
+  UI_CALL(b, set_option, 3, b, xstrdup(name), v);
 }
-static void ui_bridge_set_encoding_event(void **argv)
+static void ui_bridge_set_option_event(void **argv)
 {
   UI *ui = UI(argv[0]);
-  ui->set_encoding(ui, argv[1]);
-  xfree(argv[1]);
+  char *name = argv[1];
+  typval_T *value = argv[2];
+  ui->set_option(ui, name, *value);
+  // need to clear option in the main event loop since it will touch vimscript
+  // garbage collector.
+  loop_schedule(&loop, event_create(1, clear_option, 2, name, value));
+}
+static void clear_option(void **argv)
+{
+  char *name = argv[0];
+  typval_T *value = argv[1];
+  xfree(name);
+  clear_tv(value);
+  xfree(value);
 }

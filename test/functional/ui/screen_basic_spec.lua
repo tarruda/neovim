@@ -1,7 +1,8 @@
 local helpers = require('test.functional.helpers')
 local Screen = require('test.functional.ui.screen')
 local spawn, set_session, clear = helpers.spawn, helpers.set_session, helpers.clear
-local feed, execute = helpers.feed, helpers.execute
+local feed, execute, eq = helpers.feed, helpers.execute, helpers.eq
+local eval, command = helpers.feed, helpers.command
 local insert, wait = helpers.insert, helpers.wait
 
 describe('Initial screen', function()
@@ -562,6 +563,21 @@ describe('Screen', function()
         resize      |
         :ls^         |
       ]])
+    end)
+  end)
+
+  describe('setting ui: variables', function()
+    it('sends notifications to the UI', function()
+      command('let ui:option1 = 1')
+      command('let ui:option2 = "2"')
+      command('let ui:option3 = [1, 2, 3]')
+      screen:wait(function()
+        local opts = screen._options
+        if not opts.option3 then
+          return 'not all ui options have been set'
+        end
+      end)
+      eq({option1 = 1, option2 = '2', option3 = {1, 2, 3}}, screen._options)
     end)
   end)
 end)

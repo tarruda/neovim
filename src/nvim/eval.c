@@ -454,6 +454,14 @@ static struct vimvar {
 static dictitem_T vimvars_var;                  /* variable used for v: */
 #define vimvarht  vimvardict.dv_hashtab
 
+// UI variables are stored in a normal vimscript dictionary. The difference is
+// that changes are notified to attached UIs, and the dictionary is sent as the
+// return value of the ui_register function so that UIs can configure themselves
+// before attaching.
+static dict_T uivardict;                    // Dictionary with ui: variables
+static dictitem_T uivars_var;  // variable used for ui:
+#define uivarht  uivardict.dv_hashtab
+
 typedef struct {
   union {
     LibuvProcess uv;
@@ -557,6 +565,7 @@ void eval_init(void)
 
   init_var_dict(&globvardict, &globvars_var, VAR_DEF_SCOPE);
   init_var_dict(&vimvardict, &vimvars_var, VAR_SCOPE);
+  init_var_dict(&uivardict, &uivars_var, VAR_SCOPE);
   vimvardict.dv_lock = VAR_FIXED;
   hash_init(&compat_hashtab);
   hash_init(&func_hashtab);
@@ -629,6 +638,8 @@ void eval_clear(void)
 
   /* global variables */
   vars_clear(&globvarht);
+  // UI variables
+  vars_clear(&uivarht);
 
   /* autoloaded script names */
   ga_clear_strings(&ga_loaded);
@@ -17760,6 +17771,7 @@ static dictitem_T *find_var_in_ht(hashtab_T *ht, int htname, char_u *varname, in
   if (*varname == NUL) {
     /* Must be something like "s:", otherwise "ht" would be NULL. */
     switch (htname) {
+    case 'u': return &uivars_var;
     case 's': return &SCRIPT_SV(current_SID)->sv_var;
     case 'g': return &globvars_var;
     case 'v': return &vimvars_var;
@@ -17800,6 +17812,12 @@ static dictitem_T *find_var_in_ht(hashtab_T *ht, int htname, char_u *varname, in
 static hashtab_T *find_var_ht(char_u *name, char_u **varname)
 {
   hashitem_T  *hi;
+
+  if (!STRNCMP(name, "ui:", 3)) {
+    // UI option dictionary
+    *varname = name + 3;
+    return &uivarht;
+  }
 
   if (name[1] != ':') {
     /* The name must not start with a colon or #. */
@@ -18126,6 +18144,11 @@ set_var (
     v->di_tv.v_lock = 0;
     init_tv(tv);
   }
+
+  if (ht == &uivarht) {
+    // notify UIs
+    ui_set_option((char *)varname, v->di_tv);
+  }
 }
 
 /*
@@ -18279,7 +18302,7 @@ void copy_tv(typval_T *from, typval_T *to)
  * reference to an already copied list/dict can be used.
  * Returns FAIL or OK.
  */
-static int item_copy(typval_T *from, typval_T *to, int deep, int copyID)
+int item_copy(typval_T *from, typval_T *to, int deep, int copyID)
 {
   static int recurse = 0;
   int ret = OK;
@@ -21464,4 +21487,17 @@ bool eval_has_provider(char *name)
   }
 
   return false;
+}
+
+void eval_foreach_ui_option(UI *ui, ui_set_option_cb cb)
+{
+  int pending = (int)uivardict.dv_hashtab.ht_used;
+  for (hashitem_T *hi = uivardict.dv_hashtab.ht_array; pending > 0; ++hi) {
+    if (HASHITEM_EMPTY(hi)) {
+      continue;
+    }
+    pending--;
+    dictitem_T *di = HI2DI(hi);
+    cb(ui, (char *)di->di_key, di->di_tv);
+  }
 }

@@ -11,6 +11,7 @@
 #include "nvim/vim.h"
 #include "nvim/ui.h"
 #include "nvim/map.h"
+#include "nvim/eval.h"
 #include "nvim/memory.h"
 #include "nvim/api/vim.h"
 #include "nvim/api/private/helpers.h"
@@ -99,7 +100,7 @@ UI *tui_start(void)
   ui->suspend = tui_suspend;
   ui->set_title = tui_set_title;
   ui->set_icon = tui_set_icon;
-  ui->set_encoding = tui_set_encoding;
+  ui->set_option = tui_set_option;
   return ui_bridge_attach(ui, tui_main, tui_scheduler);
 }
 
@@ -203,6 +204,7 @@ static void tui_main(UIBridgeData *bridge, UI *ui)
   term_input_init(&data->input, &tui_loop);
   tui_terminal_start(ui);
   data->stop = false;
+  eval_foreach_ui_option(ui, tui_set_option);
   // allow the main thread to continue, we are ready to start handling UI
   // callbacks
   CONTINUE(bridge);
@@ -625,10 +627,19 @@ static void tui_set_icon(UI *ui, char *icon)
 {
 }
 
-static void tui_set_encoding(UI *ui, char* enc)
+static void tui_set_option(UI *ui, const char *name, typval_T value)
 {
   TUIData *data = ui->data;
-  term_input_set_encoding(&data->input, enc);
+  if (strncmp(name, "tui_", 4)) {
+    // not a tui option
+    return;
+  }
+  name += 4;
+  if (!strcmp(name, "timeout") && value.v_type == VAR_NUMBER) {
+    data->input.timeout = value.vval.v_number;
+  } else if (!strcmp(name, "encoding") && value.v_type == VAR_STRING) {
+    term_input_set_encoding(&data->input, (char *)value.vval.v_string);
+  }
 }
 
 static void invalidate(UI *ui, int top, int bot, int left, int right)

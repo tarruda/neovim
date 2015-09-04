@@ -100,6 +100,7 @@ static Object remote_ui_attach(uint64_t channel_id, uint64_t request_id,
   ui->suspend = remote_ui_suspend;
   ui->set_title = remote_ui_set_title;
   ui->set_icon = remote_ui_set_icon;
+  ui->set_option = remote_ui_set_option;
   pmap_put(uint64_t)(connected_uis, channel_id, ui);
   ui_attach(ui);
   return NIL;
@@ -348,4 +349,12 @@ static void remote_ui_set_icon(UI *ui, char *icon)
   Array args = ARRAY_DICT_INIT;
   ADD(args, STRING_OBJ(cstr_to_string(icon)));
   push_call(ui, "set_icon", args);
+}
+
+static void remote_ui_set_option(UI *ui, const char *name, typval_T value)
+{
+  Array args = ARRAY_DICT_INIT;
+  ADD(args, STRING_OBJ(cstr_to_string(name)));
+  ADD(args, vim_to_object(&value));
+  push_call(ui, "set_option", args);
 }

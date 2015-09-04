@@ -113,9 +113,9 @@ void ui_set_icon(char *icon)
   UI_CALL(flush);
 }
 
-void ui_update_encoding(void)
+void ui_set_option(char *name, typval_T value)
 {
-  UI_CALL(set_encoding, (char*)p_enc);
+  UI_CALL(set_option, name, value);
 }
 
 // May update the shape of the cursor.
@@ -188,7 +188,6 @@ void ui_attach(UI *ui)
   }
 
   uis[ui_count++] = ui;
-  ui_update_encoding();
   ui_refresh();
 }
 

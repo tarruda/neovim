@@ -174,6 +174,7 @@ function Screen.new(width, height)
     _mode = 'normal',
     _mouse_enabled = true,
     _attrs = {},
+    _options = {},
     _cursor = {
       row = 1, col = 1
     },
@@ -427,6 +428,10 @@ end
 
 function Screen:_handle_set_icon(icon)
   self.icon = icon
+end
+
+function Screen:_handle_set_option(name, value)
+  self._options[name] = value
 end
 
 function Screen:_clear_block(top, bot, left, right)

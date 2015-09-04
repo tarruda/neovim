@@ -5,14 +5,18 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "nvim/eval_defs.h"
+
 typedef struct {
   bool bold, underline, undercurl, italic, reverse;
   int foreground, background;
 } HlAttrs;
 
 typedef struct ui_t UI;
+typedef void(*ui_set_option_cb)(UI *ui, const char *name, typval_T value);
 
 struct ui_t {
+  bool attached;
   bool rgb;
   int width, height;
   void *data;
@@ -38,7 +42,7 @@ struct ui_t {
   void (*suspend)(UI *ui);
   void (*set_title)(UI *ui, char *title);
   void (*set_icon)(UI *ui, char *icon);
-  void (*set_encoding)(UI *ui, char *enc);
+  ui_set_option_cb set_option;
   void (*stop)(UI *ui);
 };
 

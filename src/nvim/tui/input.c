@@ -20,6 +20,7 @@ void term_input_init(TermInput *input, Loop *loop)
   input->loop = loop;
   input->paste_enabled = false;
   input->in_fd = 0;
+  input->timeout = -1;
 
   const char *term = os_getenv("TERM");
   if (!term) {
@@ -35,6 +36,8 @@ void term_input_init(TermInput *input, Loop *loop)
   // Set the pastetoggle option to a special key that will be sent when
   // \e[20{0,1}~/ are received
   Error err = ERROR_INIT;
+  // even though this function runs in the UI thread, it is safe to call this
+  // as the main thread should be suspended
   vim_set_option(cstr_as_string("pastetoggle"),
       STRING_OBJ(cstr_as_string(PASTETOGGLE_KEY)), &err);
 }
@@ -174,19 +177,6 @@ static TermKeyResult tk_getkey(TermKey *tk, TermKeyKey *key, bool force)
 
 static void timer_cb(TimeWatcher *watcher, void *data);
 
-static int get_key_code_timeout(void)
-{
-  Integer ms = -1;
-  // Check 'ttimeout' to determine if we should send ESC after 'ttimeoutlen'.
-  // See :help 'ttimeout' for more information
-  Error err = ERROR_INIT;
-  if (vim_get_option(cstr_as_string("ttimeout"), &err).data.boolean) {
-    ms = vim_get_option(cstr_as_string("ttimeoutlen"), &err).data.integer;
-  }
-
-  return (int)ms;
-}
-
 static void tk_getkeys(TermInput *input, bool force)
 {
   TermKeyKey key;
@@ -208,7 +198,7 @@ static void tk_getkeys(TermInput *input, bool force)
     return;
   }
 
-  int ms  = get_key_code_timeout();
+  int ms  = input->timeout;
 
   if (ms > 0) {
     // Stop the current timer if already running

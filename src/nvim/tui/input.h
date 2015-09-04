@@ -9,6 +9,7 @@
 
 typedef struct term_input {
   int in_fd;
+  int timeout;  // time in milliseconds to wait for esc sequences
   bool paste_enabled;
   TermKey *tk;
   TimeWatcher timer_handle;

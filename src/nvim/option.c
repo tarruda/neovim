@@ -1587,6 +1587,16 @@ theend:
   return OK;
 }
 
+static void encoding_set(void)
+{
+  // TODO(tarruda): The 'encoding' option will eventually disappear from the
+  // core(#2905) and only exist in the TUI(it is still necessary to know the
+  // terminal encoding). So for now we mirror the option value to the
+  // ui:tui_encoding variable will will be handled by the tui.
+  char buf[512];
+  snprintf(buf, sizeof(buf), "let ui:tui_encoding = '%s'", p_enc);
+  do_cmdline_cmd(buf);
+}
 /*
  * Call this when an option has been given a new value through a user command.
  * Sets the P_WAS_SET flag and takes care of the P_INSECURE flag.
@@ -2314,7 +2324,7 @@ did_set_string_option (
         (void)keymap_init();
 
       if (varp == &p_enc) {
-        ui_update_encoding();
+        encoding_set();
       }
     }
   } else if (varp == &p_penc) {
