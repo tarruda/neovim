@@ -22019,19 +22019,19 @@ static void dictwatcher_notify(dict_T *dict, const char *key, typval_T *newtv,
   }
 
   argv[0].v_type = VAR_STRING;
-  argv[0].vval.v_string = (uint8_t *)xstrdup(key);
+  argv[0].vval.v_string = (char_u *)xstrdup(key);
   argv[1].v_type = VAR_DICT;
   argv[1].vval.v_dict = dict_alloc();
   argv[1].vval.v_dict->dv_refcount++;
 
   if (newtv) {
-    dictitem_T *v = dictitem_alloc((uint8_t *)"new");
+    dictitem_T *v = dictitem_alloc((char_u *)"new");
     copy_tv(newtv, &v->di_tv);
     dict_add(argv[1].vval.v_dict, v);
   }
 
   if (oldtv) {
-    dictitem_T *v = dictitem_alloc((uint8_t *)"old");
+    dictitem_T *v = dictitem_alloc((char_u *)"old");
     copy_tv(oldtv, &v->di_tv);
     dict_add(argv[1].vval.v_dict, v);
   }
