@@ -22083,7 +22083,6 @@ static void dictwatcher_free(DictWatcher *watcher)
 
 // Check if `d` has at least one watcher.
 static bool is_watched(dict_T *d)
-  FUNC_ATTR_NONNULL_ALL
 {
   return d && !QUEUE_EMPTY(&d->watchers);
 }
