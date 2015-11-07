@@ -122,6 +122,23 @@ describe('dictionary change notifications', function()
         source([[
         call watcherdel(]]..dict_expr..[[, "wat*", "g:Changed")
         ]])
+        -- watch every key pattern
+        source([[
+        call watcheradd(]]..dict_expr..[[, "*", "g:Changed")
+        ]])
+        update('= 3', 'another_key')
+        update('= 4', 'another_key')
+        update('', 'another_key')
+        update('= 2')
+        verify_value({new = 3}, 'another_key')
+        verify_value({old = 3, new = 4}, 'another_key')
+        verify_value({old = 4}, 'another_key')
+        verify_value({old = 1, new = 2})
+        verify_value({old = 1, new = 2})
+        verify_echo()
+        source([[
+        call watcherdel(]]..dict_expr..[[, "*", "g:Changed")
+        ]])
       end)
 
       -- test a sequence of updates of different types to ensure proper memory
@@ -217,6 +234,24 @@ describe('dictionary change notifications', function()
         exc_exec('call watcheradd(g:, "key", "g:InvalidCb")'))
       eq("Vim(call):Function g:InvalidCb doesn't exist",
         exc_exec('call watcherdel(g:, "key", "g:InvalidCb")'))
+    end)
+
+    it('fails with empty keys', function()
+      eq("Vim(call):E713: Cannot use empty key for Dictionary",
+        exc_exec('call watcheradd(g:, "", "g:Watcher1")'))
+      eq("Vim(call):E713: Cannot use empty key for Dictionary",
+        exc_exec('call watcherdel(g:, "", "g:Watcher1")'))
+    end)
+
+    it('fails to replace a watcher function', function()
+      source([[
+      function! g:ReplaceWatcher2()
+        function! g:Watcher2()
+        endfunction
+      endfunction
+      ]])
+      eq("Vim(function):E127: Cannot redefine function Watcher2: It is in use",
+        exc_exec('call g:ReplaceWatcher2()'))
     end)
   end)
 end)

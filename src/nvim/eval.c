@@ -21999,13 +21999,19 @@ bool eval_has_provider(char *name)
   return false;
 }
 
+// Compute the `DictWatcher` address from a QUEUE node. This only exists because
+// ASAN doesn't handle `QUEUE_DATA` pointer arithmetic, and we blacklist this
+// function on .asan-blacklist.
 static DictWatcher *dictwatcher_node_data(QUEUE *q)
+  FUNC_ATTR_NONNULL_ALL FUNC_ATTR_NONNULL_RET
 {
   return QUEUE_DATA(q, DictWatcher, node);
 }
 
+// Send a change notification to all `dict` watchers that match `key`.
 static void dictwatcher_notify(dict_T *dict, const char *key, typval_T *newtv,
     typval_T *oldtv)
+  FUNC_ATTR_NONNULL_ARG(1) FUNC_ATTR_NONNULL_ARG(2)
 {
   typval_T argv[2];
   for (size_t i = 0; i < ARRAY_SIZE(argv); i++) {
@@ -22050,7 +22056,9 @@ static void dictwatcher_notify(dict_T *dict, const char *key, typval_T *newtv,
   }
 }
 
+// Test if `key` matches with with `watcher->key_pattern`
 static bool dictwatcher_matches(DictWatcher *watcher, const char *key)
+  FUNC_ATTR_NONNULL_ALL
 {
   // For now only allow very simple globbing in key patterns: a '*' at the end
   // of the string means it should match everything up to the '*' instead of the
@@ -22064,14 +22072,18 @@ static bool dictwatcher_matches(DictWatcher *watcher, const char *key)
   }
 }
 
+// Perform all necessary cleanup for a `DictWatcher` instance.
 static void dictwatcher_free(DictWatcher *watcher)
+  FUNC_ATTR_NONNULL_ALL
 {
   user_func_unref(watcher->callback);
   xfree(watcher->key_pattern);
   xfree(watcher);
 }
 
+// Check if `d` has at least one watcher.
 static bool is_watched(dict_T *d)
+  FUNC_ATTR_NONNULL_ALL
 {
   return d && !QUEUE_EMPTY(&d->watchers);
 }
