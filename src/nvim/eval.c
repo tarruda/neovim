@@ -16879,9 +16879,10 @@ static void f_watcheradd(typval_T *argvars, typval_T *rettv)
 
   char *key_pattern = (char *)get_tv_string_chk(argvars + 1);
   assert(key_pattern);
+  const size_t key_len = STRLEN(argvars[1].vval.v_string);
 
-  if (!STRLEN(key_pattern)) {
-    EMSG(e_emptykey);
+  if (key_len == 0) {
+    EMSG(_(e_emptykey));
     return;
   }
 
@@ -16893,7 +16894,7 @@ static void f_watcheradd(typval_T *argvars, typval_T *rettv)
 
   func->uf_refcount++;
   DictWatcher *watcher = xmalloc(sizeof(DictWatcher));
-  watcher->key_pattern = xstrdup(key_pattern);
+  watcher->key_pattern = xmemdupz(key_pattern, key_len);
   watcher->callback = func;
   watcher->busy = false;
   QUEUE_INSERT_TAIL(&argvars[0].vval.v_dict->watchers, &watcher->node);
@@ -16921,14 +16922,21 @@ static void f_watcherdel(typval_T *argvars, typval_T *rettv)
     return;
   }
 
+  char *key_pattern = (char *)get_tv_string_chk(argvars + 1);
+  assert(key_pattern);
+  const size_t key_len = STRLEN(argvars[1].vval.v_string);
+
+  if (key_len == 0) {
+    EMSG(_(e_emptykey));
+    return;
+  }
+
   ufunc_T *func = find_ufunc(argvars[2].vval.v_string);
   if (!func) {
     // Invalid function name. Error already reported by `find_ufunc`.
     return;
   }
 
-  char *key_pattern = (char *)get_tv_string_chk(argvars + 1);
-  assert(key_pattern);
   dict_T *dict = argvars[0].vval.v_dict;
   QUEUE *w = NULL;
   DictWatcher *watcher = NULL;
@@ -21996,8 +22004,8 @@ static DictWatcher *dictwatcher_node_data(QUEUE *q)
   return QUEUE_DATA(q, DictWatcher, node);
 }
 
-static void dictwatcher_notify(dict_T *dict, const char *key,
-    typval_T *newtv, typval_T *oldtv)
+static void dictwatcher_notify(dict_T *dict, const char *key, typval_T *newtv,
+    typval_T *oldtv)
 {
   typval_T argv[2];
   for (size_t i = 0; i < ARRAY_SIZE(argv); i++) {
