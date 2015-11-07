@@ -7178,6 +7178,8 @@ static struct fst {
   {"cursor",          1, 3, f_cursor},
   {"deepcopy",        1, 2, f_deepcopy},
   {"delete",          1, 1, f_delete},
+  {"dictwatcheradd",  3, 3, f_dictwatcheradd},
+  {"dictwatcherdel",  3, 3, f_dictwatcherdel},
   {"did_filetype",    0, 0, f_did_filetype},
   {"diff_filler",     1, 1, f_diff_filler},
   {"diff_hlID",       2, 2, f_diff_hlID},
@@ -7408,8 +7410,6 @@ static struct fst {
   {"values",          1, 1, f_values},
   {"virtcol",         1, 1, f_virtcol},
   {"visualmode",      0, 1, f_visualmode},
-  {"watcheradd",      3, 3, f_watcheradd},
-  {"watcherdel",      3, 3, f_watcherdel},
   {"wildmenumode",    0, 0, f_wildmenumode},
   {"winbufnr",        1, 1, f_winbufnr},
   {"wincol",          0, 0, f_wincol},
@@ -8746,6 +8746,110 @@ static void f_delete(typval_T *argvars, typval_T *rettv)
     rettv->vval.v_number = -1;
   else
     rettv->vval.v_number = os_remove((char *)get_tv_string(&argvars[0]));
+}
+
+// dictwatcheradd(dict, key, funcref) function
+static void f_dictwatcheradd(typval_T *argvars, typval_T *rettv)
+{
+  if (check_restricted() || check_secure()) {
+    return;
+  }
+
+  if (argvars[0].v_type != VAR_DICT) {
+    EMSG2(e_invarg2, "dict");
+    return;
+  }
+
+  if (argvars[1].v_type != VAR_STRING && argvars[1].v_type != VAR_NUMBER) {
+    EMSG2(e_invarg2, "key");
+    return;
+  }
+
+  if (argvars[2].v_type != VAR_FUNC && argvars[2].v_type != VAR_STRING) {
+    EMSG2(e_invarg2, "funcref");
+    return;
+  }
+
+  char *key_pattern = (char *)get_tv_string_chk(argvars + 1);
+  assert(key_pattern);
+  const size_t key_len = STRLEN(argvars[1].vval.v_string);
+
+  if (key_len == 0) {
+    EMSG(_(e_emptykey));
+    return;
+  }
+
+  ufunc_T *func = find_ufunc(argvars[2].vval.v_string);
+  if (!func) {
+    // Invalid function name. Error already reported by `find_ufunc`.
+    return;
+  }
+
+  func->uf_refcount++;
+  DictWatcher *watcher = xmalloc(sizeof(DictWatcher));
+  watcher->key_pattern = xmemdupz(key_pattern, key_len);
+  watcher->callback = func;
+  watcher->busy = false;
+  QUEUE_INSERT_TAIL(&argvars[0].vval.v_dict->watchers, &watcher->node);
+}
+
+// dictwatcherdel(dict, key, funcref) function
+static void f_dictwatcherdel(typval_T *argvars, typval_T *rettv)
+{
+  if (check_restricted() || check_secure()) {
+    return;
+  }
+
+  if (argvars[0].v_type != VAR_DICT) {
+    EMSG2(e_invarg2, "dict");
+    return;
+  }
+
+  if (argvars[1].v_type != VAR_STRING && argvars[1].v_type != VAR_NUMBER) {
+    EMSG2(e_invarg2, "key");
+    return;
+  }
+
+  if (argvars[2].v_type != VAR_FUNC && argvars[2].v_type != VAR_STRING) {
+    EMSG2(e_invarg2, "funcref");
+    return;
+  }
+
+  char *key_pattern = (char *)get_tv_string_chk(argvars + 1);
+  assert(key_pattern);
+  const size_t key_len = STRLEN(argvars[1].vval.v_string);
+
+  if (key_len == 0) {
+    EMSG(_(e_emptykey));
+    return;
+  }
+
+  ufunc_T *func = find_ufunc(argvars[2].vval.v_string);
+  if (!func) {
+    // Invalid function name. Error already reported by `find_ufunc`.
+    return;
+  }
+
+  dict_T *dict = argvars[0].vval.v_dict;
+  QUEUE *w = NULL;
+  DictWatcher *watcher = NULL;
+  bool matched = false;
+  QUEUE_FOREACH(w, &dict->watchers) {
+    watcher = dictwatcher_node_data(w);
+    if (func == watcher->callback
+        && !strcmp(watcher->key_pattern, key_pattern)) {
+      matched = true;
+      break;
+    }
+  }
+
+  if (!matched) {
+    EMSG("Couldn't find a watcher matching key and callback");
+    return;
+  }
+
+  QUEUE_REMOVE(w);
+  dictwatcher_free(watcher);
 }
 
 /*
@@ -16853,110 +16957,6 @@ static void f_visualmode(typval_T *argvars, typval_T *rettv)
   /* A non-zero number or non-empty string argument: reset mode. */
   if (non_zero_arg(&argvars[0]))
     curbuf->b_visual_mode_eval = NUL;
-}
-
-// watcheradd(dict, key, funcref) function
-static void f_watcheradd(typval_T *argvars, typval_T *rettv)
-{
-  if (check_restricted() || check_secure()) {
-    return;
-  }
-
-  if (argvars[0].v_type != VAR_DICT) {
-    EMSG2(e_invarg2, "dict");
-    return;
-  }
-
-  if (argvars[1].v_type != VAR_STRING && argvars[1].v_type != VAR_NUMBER) {
-    EMSG2(e_invarg2, "key");
-    return;
-  }
-
-  if (argvars[2].v_type != VAR_FUNC && argvars[2].v_type != VAR_STRING) {
-    EMSG2(e_invarg2, "funcref");
-    return;
-  }
-
-  char *key_pattern = (char *)get_tv_string_chk(argvars + 1);
-  assert(key_pattern);
-  const size_t key_len = STRLEN(argvars[1].vval.v_string);
-
-  if (key_len == 0) {
-    EMSG(_(e_emptykey));
-    return;
-  }
-
-  ufunc_T *func = find_ufunc(argvars[2].vval.v_string);
-  if (!func) {
-    // Invalid function name. Error already reported by `find_ufunc`.
-    return;
-  }
-
-  func->uf_refcount++;
-  DictWatcher *watcher = xmalloc(sizeof(DictWatcher));
-  watcher->key_pattern = xmemdupz(key_pattern, key_len);
-  watcher->callback = func;
-  watcher->busy = false;
-  QUEUE_INSERT_TAIL(&argvars[0].vval.v_dict->watchers, &watcher->node);
-}
-
-// watcherdel(dict, key, funcref) function
-static void f_watcherdel(typval_T *argvars, typval_T *rettv)
-{
-  if (check_restricted() || check_secure()) {
-    return;
-  }
-
-  if (argvars[0].v_type != VAR_DICT) {
-    EMSG2(e_invarg2, "dict");
-    return;
-  }
-
-  if (argvars[1].v_type != VAR_STRING && argvars[1].v_type != VAR_NUMBER) {
-    EMSG2(e_invarg2, "key");
-    return;
-  }
-
-  if (argvars[2].v_type != VAR_FUNC && argvars[2].v_type != VAR_STRING) {
-    EMSG2(e_invarg2, "funcref");
-    return;
-  }
-
-  char *key_pattern = (char *)get_tv_string_chk(argvars + 1);
-  assert(key_pattern);
-  const size_t key_len = STRLEN(argvars[1].vval.v_string);
-
-  if (key_len == 0) {
-    EMSG(_(e_emptykey));
-    return;
-  }
-
-  ufunc_T *func = find_ufunc(argvars[2].vval.v_string);
-  if (!func) {
-    // Invalid function name. Error already reported by `find_ufunc`.
-    return;
-  }
-
-  dict_T *dict = argvars[0].vval.v_dict;
-  QUEUE *w = NULL;
-  DictWatcher *watcher = NULL;
-  bool matched = false;
-  QUEUE_FOREACH(w, &dict->watchers) {
-    watcher = dictwatcher_node_data(w);
-    if (func == watcher->callback
-        && !strcmp(watcher->key_pattern, key_pattern)) {
-      matched = true;
-      break;
-    }
-  }
-
-  if (!matched) {
-    EMSG("Couldn't find a watcher matching key and callback");
-    return;
-  }
-
-  QUEUE_REMOVE(w);
-  dictwatcher_free(watcher);
 }
 
 /*

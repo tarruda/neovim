@@ -61,15 +61,15 @@ describe('dictionary change notifications', function()
           endif
           call rpcnotify(g:channel, 'values', a:key, a:value)
         endfunction
-        call watcheradd(]]..dict_expr..[[, "watched", "g:Changed")
-        call watcheradd(]]..dict_expr..[[, "watched2", "g:Changed")
+        call dictwatcheradd(]]..dict_expr..[[, "watched", "g:Changed")
+        call dictwatcheradd(]]..dict_expr..[[, "watched2", "g:Changed")
         ]])
       end)
 
       after_each(function()
         source([[
-        call watcherdel(]]..dict_expr..[[, "watched", "g:Changed")
-        call watcherdel(]]..dict_expr..[[, "watched2", "g:Changed")
+        call dictwatcherdel(]]..dict_expr..[[, "watched", "g:Changed")
+        call dictwatcherdel(]]..dict_expr..[[, "watched2", "g:Changed")
         ]])
         update('= "test"')
         update('= "test2"', 'watched2')
@@ -110,7 +110,7 @@ describe('dictionary change notifications', function()
 
       it('is triggered with key patterns', function()
         source([[
-        call watcheradd(]]..dict_expr..[[, "wat*", "g:Changed")
+        call dictwatcheradd(]]..dict_expr..[[, "wat*", "g:Changed")
         ]])
         update('= 1')
         verify_value({new = 1})
@@ -120,11 +120,11 @@ describe('dictionary change notifications', function()
         verify_value({new = 3}, 'watched2')
         verify_echo()
         source([[
-        call watcherdel(]]..dict_expr..[[, "wat*", "g:Changed")
+        call dictwatcherdel(]]..dict_expr..[[, "wat*", "g:Changed")
         ]])
         -- watch every key pattern
         source([[
-        call watcheradd(]]..dict_expr..[[, "*", "g:Changed")
+        call dictwatcheradd(]]..dict_expr..[[, "*", "g:Changed")
         ]])
         update('= 3', 'another_key')
         update('= 4', 'another_key')
@@ -137,7 +137,7 @@ describe('dictionary change notifications', function()
         verify_value({old = 1, new = 2})
         verify_echo()
         source([[
-        call watcherdel(]]..dict_expr..[[, "*", "g:Changed")
+        call dictwatcherdel(]]..dict_expr..[[, "*", "g:Changed")
         ]])
       end)
 
@@ -199,8 +199,8 @@ describe('dictionary change notifications', function()
       function! g:Watcher2(key, value)
         call rpcnotify(g:channel, '2', a:key, a:value)
       endfunction
-      call watcheradd(g:, "key", "g:Watcher1")
-      call watcheradd(g:, "key", "g:Watcher2")
+      call dictwatcheradd(g:, "key", "g:Watcher1")
+      call dictwatcheradd(g:, "key", "g:Watcher2")
       ]])
     end)
 
@@ -211,7 +211,7 @@ describe('dictionary change notifications', function()
     end)
 
     it('only removes watchers that fully match dict, key and callback', function()
-      nvim('command', 'call watcherdel(g:, "key", "g:Watcher1")')
+      nvim('command', 'call dictwatcherdel(g:, "key", "g:Watcher1")')
       nvim('command', 'let g:key = "v2"')
       eq({'notification', '2', {'key', {old = 'value', new = 'v2'}}}, next_msg())
     end)
@@ -221,26 +221,26 @@ describe('dictionary change notifications', function()
     -- WARNING: This suite depends on the above tests
     it('fails to remove if no watcher with matching callback is found', function()
       eq("Vim(call):Couldn't find a watcher matching key and callback",
-        exc_exec('call watcherdel(g:, "key", "g:Watcher1")'))
+        exc_exec('call dictwatcherdel(g:, "key", "g:Watcher1")'))
     end)
 
     it('fails to remove if no watcher with matching key is found', function()
       eq("Vim(call):Couldn't find a watcher matching key and callback",
-        exc_exec('call watcherdel(g:, "invalid_key", "g:Watcher2")'))
+        exc_exec('call dictwatcherdel(g:, "invalid_key", "g:Watcher2")'))
     end)
 
     it("fails to add/remove if the callback doesn't exist", function()
       eq("Vim(call):Function g:InvalidCb doesn't exist",
-        exc_exec('call watcheradd(g:, "key", "g:InvalidCb")'))
+        exc_exec('call dictwatcheradd(g:, "key", "g:InvalidCb")'))
       eq("Vim(call):Function g:InvalidCb doesn't exist",
-        exc_exec('call watcherdel(g:, "key", "g:InvalidCb")'))
+        exc_exec('call dictwatcherdel(g:, "key", "g:InvalidCb")'))
     end)
 
     it('fails with empty keys', function()
       eq("Vim(call):E713: Cannot use empty key for Dictionary",
-        exc_exec('call watcheradd(g:, "", "g:Watcher1")'))
+        exc_exec('call dictwatcheradd(g:, "", "g:Watcher1")'))
       eq("Vim(call):E713: Cannot use empty key for Dictionary",
-        exc_exec('call watcherdel(g:, "", "g:Watcher1")'))
+        exc_exec('call dictwatcherdel(g:, "", "g:Watcher1")'))
     end)
 
     it('fails to replace a watcher function', function()
