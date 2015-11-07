@@ -16862,16 +16862,26 @@ static void f_watcheradd(typval_T *argvars, typval_T *rettv)
     return;
   }
 
-  if (argvars[0].v_type != VAR_DICT ||
-      argvars[1].v_type != VAR_STRING ||
-      (argvars[2].v_type != VAR_FUNC && argvars[2].v_type != VAR_STRING)) {
-    // Wrong argument types
-    EMSG(_(e_invarg));
+  if (argvars[0].v_type != VAR_DICT) {
+    EMSG2(e_invarg2, "dict");
     return;
   }
 
-  if (!STRLEN(argvars[1].vval.v_string)) {
-    EMSG(_("Can't use an empty string as the watched key"));
+  if (argvars[1].v_type != VAR_STRING && argvars[1].v_type != VAR_NUMBER) {
+    EMSG2(e_invarg2, "key");
+    return;
+  }
+
+  if (argvars[2].v_type != VAR_FUNC && argvars[2].v_type != VAR_STRING) {
+    EMSG2(e_invarg2, "funcref");
+    return;
+  }
+
+  char *key_pattern = (char *)get_tv_string_chk(argvars + 1);
+  assert(key_pattern);
+
+  if (!STRLEN(key_pattern)) {
+    EMSG(e_emptykey);
     return;
   }
 
@@ -16883,7 +16893,7 @@ static void f_watcheradd(typval_T *argvars, typval_T *rettv)
 
   func->uf_refcount++;
   DictWatcher *watcher = xmalloc(sizeof(DictWatcher));
-  watcher->key_pattern = xstrdup((char *)argvars[1].vval.v_string);
+  watcher->key_pattern = xstrdup(key_pattern);
   watcher->callback = func;
   watcher->busy = false;
   QUEUE_INSERT_TAIL(&argvars[0].vval.v_dict->watchers, &watcher->node);
@@ -16896,11 +16906,18 @@ static void f_watcherdel(typval_T *argvars, typval_T *rettv)
     return;
   }
 
-  if (argvars[0].v_type != VAR_DICT ||
-      argvars[1].v_type != VAR_STRING ||
-      (argvars[2].v_type != VAR_FUNC && argvars[2].v_type != VAR_STRING)) {
-    // Wrong argument types
-    EMSG(_(e_invarg));
+  if (argvars[0].v_type != VAR_DICT) {
+    EMSG2(e_invarg2, "dict");
+    return;
+  }
+
+  if (argvars[1].v_type != VAR_STRING && argvars[1].v_type != VAR_NUMBER) {
+    EMSG2(e_invarg2, "key");
+    return;
+  }
+
+  if (argvars[2].v_type != VAR_FUNC && argvars[2].v_type != VAR_STRING) {
+    EMSG2(e_invarg2, "funcref");
     return;
   }
 
@@ -16910,6 +16927,8 @@ static void f_watcherdel(typval_T *argvars, typval_T *rettv)
     return;
   }
 
+  char *key_pattern = (char *)get_tv_string_chk(argvars + 1);
+  assert(key_pattern);
   dict_T *dict = argvars[0].vval.v_dict;
   QUEUE *w = NULL;
   DictWatcher *watcher = NULL;
@@ -16917,7 +16936,7 @@ static void f_watcherdel(typval_T *argvars, typval_T *rettv)
   QUEUE_FOREACH(w, &dict->watchers) {
     watcher = dictwatcher_node_data(w);
     if (func == watcher->callback
-        && !strcmp(watcher->key_pattern, (char *)argvars[1].vval.v_string)) {
+        && !strcmp(watcher->key_pattern, key_pattern)) {
       matched = true;
       break;
     }
