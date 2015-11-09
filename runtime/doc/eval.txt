@@ -2676,13 +2676,14 @@ dictwatcheradd({dict}, {pattern}, {callback})		      *dictwatcheradd()*
 
 		After this is called, every change on {dict} and on keys
 		matching {pattern} will result in {callback} being invoked.
-		The {callback} receives two arguments:
+		The {callback} receives three arguments:
 
+		- The dictionary being watched.
 		- The key which changed.
 		- A dictionary containg the new and old values for the key.
 
 		The type of change can be determined by examining the keys
-		present on the second argument:
+		present on the third argument:
 
 		- If contains both `old` and `new`, the key was updated.
 		- If it contains only `new`, the key was added.
@@ -2691,7 +2692,7 @@ dictwatcheradd({dict}, {pattern}, {callback})		      *dictwatcheradd()*
 		This function can be used by plugins to implement options with
 		validation and parsing logic.
 
-dictwatcherdel({dict}, {pattern}, {callback})		      *dictwatcheradd()*
+dictwatcherdel({dict}, {pattern}, {callback})		      *dictwatcherdel()*
 		Removes a watcher added  with |dictwatcheradd()|. All three
 		arguments must match the ones passed to |dictwatcheradd()| in
 		order for the watcher to be successfully deleted.

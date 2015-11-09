@@ -22013,27 +22013,29 @@ static void dictwatcher_notify(dict_T *dict, const char *key, typval_T *newtv,
     typval_T *oldtv)
   FUNC_ATTR_NONNULL_ARG(1) FUNC_ATTR_NONNULL_ARG(2)
 {
-  typval_T argv[2];
+  typval_T argv[3];
   for (size_t i = 0; i < ARRAY_SIZE(argv); i++) {
     init_tv(argv + i);
   }
 
-  argv[0].v_type = VAR_STRING;
-  argv[0].vval.v_string = (char_u *)xstrdup(key);
-  argv[1].v_type = VAR_DICT;
-  argv[1].vval.v_dict = dict_alloc();
-  argv[1].vval.v_dict->dv_refcount++;
+  argv[0].v_type = VAR_DICT;
+  argv[0].vval.v_dict = dict;
+  argv[1].v_type = VAR_STRING;
+  argv[1].vval.v_string = (char_u *)xstrdup(key);
+  argv[2].v_type = VAR_DICT;
+  argv[2].vval.v_dict = dict_alloc();
+  argv[2].vval.v_dict->dv_refcount++;
 
   if (newtv) {
     dictitem_T *v = dictitem_alloc((char_u *)"new");
     copy_tv(newtv, &v->di_tv);
-    dict_add(argv[1].vval.v_dict, v);
+    dict_add(argv[2].vval.v_dict, v);
   }
 
   if (oldtv) {
     dictitem_T *v = dictitem_alloc((char_u *)"old");
     copy_tv(oldtv, &v->di_tv);
-    dict_add(argv[1].vval.v_dict, v);
+    dict_add(argv[2].vval.v_dict, v);
   }
 
   typval_T rettv;
@@ -22045,13 +22047,13 @@ static void dictwatcher_notify(dict_T *dict, const char *key, typval_T *newtv,
       init_tv(&rettv);
       watcher->busy = true;
       call_user_func(watcher->callback, ARRAY_SIZE(argv), argv, &rettv,
-          curwin->w_cursor.lnum, curwin->w_cursor.lnum, dict);
+          curwin->w_cursor.lnum, curwin->w_cursor.lnum, NULL);
       watcher->busy = false;
       clear_tv(&rettv);
     }
   }
 
-  for (size_t i = 0; i < ARRAY_SIZE(argv); i++) {
+  for (size_t i = 1; i < ARRAY_SIZE(argv); i++) {
     clear_tv(argv + i);
   }
 }

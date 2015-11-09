@@ -55,9 +55,9 @@ describe('dictionary change notifications', function()
 
       before_each(function()
         source([[
-        function! g:Changed(key, value)
-          if self != ]]..dict_expr..[[ |
-            throw 'invalid self'
+        function! g:Changed(dict, key, value)
+          if a:dict != ]]..dict_expr..[[ |
+            throw 'invalid dict'
           endif
           call rpcnotify(g:channel, 'values', a:key, a:value)
         endfunction
@@ -193,10 +193,10 @@ describe('dictionary change notifications', function()
   describe('multiple watchers on the same dict/key', function()
     setup(function()
       source([[
-      function! g:Watcher1(key, value)
+      function! g:Watcher1(dict, key, value)
         call rpcnotify(g:channel, '1', a:key, a:value)
       endfunction
-      function! g:Watcher2(key, value)
+      function! g:Watcher2(dict, key, value)
         call rpcnotify(g:channel, '2', a:key, a:value)
       endfunction
       call dictwatcheradd(g:, "key", "g:Watcher1")
