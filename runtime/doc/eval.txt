@@ -2676,6 +2676,13 @@ dictwatcheradd({dict}, {pattern}, {callback})		      *dictwatcheradd()*
 
 		After this is called, every change on {dict} and on keys
 		matching {pattern} will result in {callback} being invoked.
+
+		For now {pattern} only accepts very simple patterns that can
+		contain a '*' at the end of the string, in which case it will
+		match every key that begins with the substring before the '*'.
+		That means if '*' is not the last character of {pattern}, only
+		keys that are exactly equal as {pattern} will be matched.
+
 		The {callback} receives three arguments:
 
 		- The dictionary being watched.
