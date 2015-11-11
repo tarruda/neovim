@@ -171,7 +171,7 @@ static void tui_terminal_start(UI *ui)
 {
   TUIData *data = ui->data;
   data->print_attrs = EMPTY_ATTRS;
-  ugrid_init(&data->grid);
+  ugrid_init(&data->grid, xmalloc, xfree);
   terminfo_start(ui);
   update_size(ui);
   signal_watcher_start(&data->winch_handle, sigwinch_cb, SIGWINCH);

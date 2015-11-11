@@ -19,7 +19,12 @@ struct ucell {
   HlAttrs attrs;
 };
 
+typedef void* (*ugrid_alloc_fn)(size_t size);
+typedef void (*ugrid_free_fn)(void *ptr);
+
 struct ugrid {
+  ugrid_alloc_fn alloc_fn;
+  ugrid_free_fn free_fn;
   int top, bot, left, right;
   int row, col;
   int bg, fg;

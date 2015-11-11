@@ -1,20 +1,23 @@
 #include <assert.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <limits.h>
 
-#include "nvim/vim.h"
 #include "nvim/ugrid.h"
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "ugrid.c.generated.h"
 #endif
 
-void ugrid_init(UGrid *grid)
+void ugrid_init(UGrid *grid, ugrid_alloc_fn alloc_fn, ugrid_free_fn free_fn)
 {
   grid->attrs = EMPTY_ATTRS;
   grid->fg = grid->bg = -1;
   grid->cells = NULL;
+  grid->alloc_fn = alloc_fn;
+  grid->free_fn = free_fn;
 }
 
 void ugrid_free(UGrid *grid)
@@ -25,9 +28,11 @@ void ugrid_free(UGrid *grid)
 void ugrid_resize(UGrid *grid, int width, int height)
 {
   destroy_cells(grid);
-  grid->cells = xmalloc((size_t)height * sizeof(UCell *));
+  grid->cells = grid->alloc_fn((size_t)height * sizeof(UCell *));
   for (int i = 0; i < height; i++) {
-    grid->cells[i] = xcalloc((size_t)width, sizeof(UCell));
+    size_t rowsize = (size_t)width * sizeof(UCell);
+    grid->cells[i] = grid->alloc_fn(rowsize);
+    memset(grid->cells[i], 0, rowsize);
   }
 
   grid->top = 0;
@@ -128,9 +133,9 @@ static void destroy_cells(UGrid *grid)
 {
   if (grid->cells) {
     for (int i = 0; i < grid->height; i++) {
-      xfree(grid->cells[i]);
+      grid->free_fn(grid->cells[i]);
     }
-    xfree(grid->cells);
+    grid->free_fn(grid->cells);
   }
 }
 
