@@ -5,10 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-typedef struct {
-  bool bold, underline, undercurl, italic, reverse;
-  int foreground, background;
-} HlAttrs;
+#include "nvim/ugrid.h"
 
 typedef struct ui_t UI;
 

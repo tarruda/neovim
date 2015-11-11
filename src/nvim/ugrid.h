@@ -1,11 +1,15 @@
 #ifndef NVIM_UGRID_H
 #define NVIM_UGRID_H
 
-#include "nvim/ui.h"
 #include "nvim/globals.h"
 
 typedef struct ucell UCell;
 typedef struct ugrid UGrid;
+
+typedef struct {
+  bool bold, underline, undercurl, italic, reverse;
+  int foreground, background;
+} HlAttrs;
 
 struct ucell {
   char data[6 * MAX_MCO + 1];

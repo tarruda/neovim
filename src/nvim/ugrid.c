@@ -4,7 +4,6 @@
 #include <limits.h>
 
 #include "nvim/vim.h"
-#include "nvim/ui.h"
 #include "nvim/ugrid.h"
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
