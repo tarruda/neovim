@@ -30,7 +30,6 @@
 #include "nvim/screen.h"
 #include "nvim/syntax.h"
 #include "nvim/window.h"
-#include "nvim/tui/tui.h"
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "ui.c.generated.h"
@@ -72,7 +71,7 @@ static int height, width;
 
 void ui_builtin_start(void)
 {
-  tui_start();
+  // tui_start();
 }
 
 void ui_builtin_stop(void)
