@@ -1,7 +1,8 @@
 #ifndef NVIM_UGRID_H
 #define NVIM_UGRID_H
 
-#include "nvim/globals.h"
+#include <stddef.h>
+#include <stdbool.h>
 
 typedef struct ucell UCell;
 typedef struct ugrid UGrid;
@@ -10,6 +11,8 @@ typedef struct {
   bool bold, underline, undercurl, italic, reverse;
   int foreground, background;
 } HlAttrs;
+
+#define MAX_MCO        6                 // maximum value for 'maxcombine'
 
 struct ucell {
   char data[6 * MAX_MCO + 1];
