@@ -279,3 +279,4 @@ target_link_libraries(nvim-test ${NVIM_LINK_LIBRARIES})
 set_property(TARGET nvim-test APPEND_STRING PROPERTY COMPILE_FLAGS -DUNIT_TESTING)
 
 add_subdirectory(po)
+add_subdirectory(tui)
